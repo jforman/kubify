@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse
 import logging
@@ -151,15 +151,18 @@ class KubeBuild:
 
     def create_ca_cert_private_key(self):
         """create ca cert and private key."""
+        logging.info("beginning to create ca certificates")
         self.run_bin_command(
             cmd="cfssl gencert -initca {TEMPLATE_DIR}/ca-csr.json",
             write_output='{TMP_DIR}/cfssl_initca.output')
         self.run_bin_command(
             cmd='cfssljson -bare -f {TMP_DIR}/cfssl_initca.output {CA_DIR}/ca')
+        logging.info("finished creating ca certificates")
 
 
     def create_admin_client_cert(self):
         """create admin client certificate"""
+        logging.info("beginning to create admin client certificates")
         self.run_bin_command(
             cmd=("cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                  "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
@@ -171,6 +174,7 @@ class KubeBuild:
             cmd=('cfssljson -bare -f {TMP_DIR}/cfssl_gencert_admin.output '
                  '{ADMIN_DIR}/admin')
             )
+        logging.info("finished creating admin client certificates")
 
 
 def main():
