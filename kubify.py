@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import argparse
 import logging
@@ -8,6 +8,8 @@ import string
 import subprocess
 import sys
 import urllib
+
+import helpers
 
 class KubeBuild:
 
@@ -35,7 +37,8 @@ class KubeBuild:
             '{CA_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'ca'),
             '{TEMPLATE_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'],
                                            'templates'),
-            '{TMP_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'tmp')
+            '{TMP_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'tmp'),
+            '{WORKER_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'workers')
 
         })
         logging.debug('translating %s.', path)
@@ -51,6 +54,7 @@ class KubeBuild:
         self.download_tools()
         self.create_ca_cert_private_key()
         self.create_admin_client_cert()
+        self.create_client_certs()
 
 
     def run_bin_command(self, cmd, return_output=False,
@@ -177,11 +181,78 @@ class KubeBuild:
         logging.info("finished creating admin client certificates")
 
 
+    def create_client_certs(self):
+        """create certificates for kubernetes clients."""
+        # TODO: test this.
+        for cur_index in range(0, self.args.cluster_size):
+            logging.info('creating csr json template for worker %d.',
+                          cur_index)
+            worker_hostname = helpers.hostname_with_index(
+                cur_index,
+                self.args.worker_host_prefix)
+            ip_address = helpers.get_ip_from_range(
+                cur_index,
+                self.args.cluster_starting_ip,
+                self.args.cluster_ip_netmask)
+            logging.debug('Hostname: %s, IP Address: %s.',
+                          worker_hostname, ip_address)
+
+            template_vars = {
+                'instance': worker_hostname,
+            }
+            worker_json = helpers.render_template(
+                self.translate_path('{TEMPLATE_DIR}/worker-csr.json'),
+                template_vars)
+
+            template_path = self.translate_path(
+                '{WORKER_DIR}/%s_worker-csr.json' % worker_hostname)
+
+            if self.args.dry_run:
+                logging.info('DRYRUN: would have written worker csr json '
+                             'template to %s.', template_path)
+            else:
+                with open(template_path, 'w') as tp:
+                    tp.write(worker_json)
+
+            logging.info('creating worker certificate for host %s',
+                        worker_hostname)
+            self.run_bin_command(
+                cmd=("cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+                     "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
+                     "-config={TEMPLATE_DIR}/ca-config.json "
+                     "-profile=kubernetes "
+                     "-hostname=%(worker_hostname)s,%(ip_address)s "
+                     "%(template_path)s" % {
+                        'worker_hostname': worker_hostname,
+                        'ip_address': ip_address,
+                        'template_path': template_path,}),
+                write_output='{WORKER_DIR}/cfssl_gencert_worker-%s.output' % worker_hostname)
+
+            self.run_bin_command(
+                cmd=("cfssljson -bare "
+                     "-f {WORKER_DIR}/cfssl_gencert_worker-%s.output "
+                     "-bare {WORKER_DIR}/%s" % (worker_hostname, worker_hostname))
+            )
+
+
+
 def main():
     """main for Kubify script."""
     parser = argparse.ArgumentParser(
         description='Install Kubernetes, the hard way.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--clear_output_dir',
+                        dest='clear_output_dir',
+                        action='store_true',
+                        help=('delete the output directory before '
+                              ' generating configs'))
+    parser.add_argument('--cluster_size',
+                        type=int,
+                        default=1)
+    parser.add_argument('--cluster_starting_ip',
+                        help='Starting IP address for cluster')
+    parser.add_argument('--cluster_ip_netmask',
+                        help='CIDR netmask for cluster IP addresses.')
     parser.add_argument('--dry_run',
                         action='store_true',
                         help='dont actually do anything.')
@@ -197,10 +268,10 @@ def main():
                         required=True,
                         help=('base directory where generated configs '
                               'will be stored.'))
-    parser.add_argument('--clear_output_dir',
-                        dest='clear_output_dir',
-                        action='store_true',
-                        help='if true, clear the output directory before generating configs')
+    parser.add_argument('--worker_host_prefix',
+                        dest='worker_host_prefix',
+                        default='worker',
+                        help='prefix for hostnames of kubernetes worker notes')
 
     args = parser.parse_args()
 
