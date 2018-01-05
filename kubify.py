@@ -183,7 +183,6 @@ class KubeBuild:
 
     def create_client_certs(self):
         """create certificates for kubernetes clients."""
-        # TODO: test this.
         for cur_index in range(0, self.args.cluster_size):
             logging.info('creating csr json template for worker %d.',
                           cur_index)
