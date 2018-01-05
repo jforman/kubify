@@ -46,6 +46,7 @@ Given the cfssl and cfssljson commands use a lot of the same directory paths and
 {ADMIN_DIR}: Directory under OUTPUT_DIR where administrative certificates are stored.
 {BIN_DIR}: Directory under OUTPUT_DIR where binaries related to configuration generation will live.
 {CA_DIR}: Directory under OUTPUT_DIR where certificate authority certificates are stored.
+{PROXY_DIR}: Directory under OUTPUT_DIR where kube-proxy client certificates are stored.
 {TEMPLATE_DIR}: Directory under Git checkout where JSON and other configuration templates lives.
 {TMP_DIR}: Directory under OUTPUT_DIR where intermediate output is stored that can be later consumed by other processes.
 {WORKER_DIR}: Directory under OUTPUT_DIR where worker JSON and certificates are stored.

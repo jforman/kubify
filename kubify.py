@@ -35,6 +35,7 @@ class KubeBuild:
             '{ADMIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'admin'),
             '{BIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'bin'),
             '{CA_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'ca'),
+            '{PROXY_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'proxy'),
             '{TEMPLATE_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'],
                                            'templates'),
             '{TMP_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'tmp'),
@@ -55,6 +56,7 @@ class KubeBuild:
         self.create_ca_cert_private_key()
         self.create_admin_client_cert()
         self.create_client_certs()
+        self.create_proxy_certs()
 
 
     def run_bin_command(self, cmd, return_output=False,
@@ -95,7 +97,7 @@ class KubeBuild:
 
 
     def create_output_dirs(self):
-        subdirs = ['admin', 'bin', 'ca', 'tmp', 'workers']
+        subdirs = ['admin', 'bin', 'ca', 'proxy', 'tmp', 'workers']
 
         if (
             not self.args.clear_output_dir and
@@ -232,6 +234,23 @@ class KubeBuild:
                      "-f {WORKER_DIR}/cfssl_gencert_worker-%s.output "
                      "-bare {WORKER_DIR}/%s" % (worker_hostname, worker_hostname))
             )
+
+
+    def create_proxy_certs(self):
+        """create kube-proxy certs"""
+        logging.info("beginning to create kube-proxy certificates")
+        self.run_bin_command(
+            cmd=("cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
+                 "-config={TEMPLATE_DIR}/ca-config.json "
+                 "-profile=kubernetes {TEMPLATE_DIR}/kube-proxy-csr.json"),
+            write_output='{TMP_DIR}/cfssl_gencert_kube-proxy.output')
+
+        self.run_bin_command(
+            cmd=('cfssljson -bare -f {TMP_DIR}/cfssl_gencert_kube-proxy.output '
+                 '{PROXY_DIR}/kube-proxy')
+            )
+        logging.info("finished creating kube-proxy certificates")
 
 
 
