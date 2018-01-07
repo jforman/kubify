@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import ConfigParser
 import logging
 import os
 import shutil
@@ -16,9 +17,16 @@ class KubeBuild:
     def __init__(self, cli_args):
         self.args = cli_args
         self.checkout_path = os.path.dirname(os.path.realpath(sys.argv[0]))
-        logging.info('Checkout Path: %s, Output Dir: %s',
+
+        self.config = ConfigParser.SafeConfigParser()
+        self.config.read(self.args.config)
+
+        logging.debug('Checkout Path: %s, Output Dir: %s',
                       self.checkout_path, self.args.output_dir)
 
+    def get_ssl_certificate_fields(self):
+        """return the ssl field names as a dict."""
+        return dict(self.config.items('certificate'))
 
     def translate_path(self, path):
         """given string containing special macro, return command line with
@@ -33,6 +41,7 @@ class KubeBuild:
         # now we can update the dict path based upon the base ones above
         path_dict.update({
             '{ADMIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'admin'),
+            '{API_SERVER_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'api_server'),
             '{BIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'bin'),
             '{CA_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'ca'),
             '{PROXY_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'proxy'),
@@ -57,6 +66,7 @@ class KubeBuild:
         self.create_admin_client_cert()
         self.create_client_certs()
         self.create_proxy_certs()
+        self.create_api_server_cert()
 
 
     def run_bin_command(self, cmd, return_output=False,
@@ -66,6 +76,7 @@ class KubeBuild:
         command_list[0] = os.path.join(self.args.output_dir,
                                        'bin',
                                        self.translate_path(command_list[0]))
+
         if self.args.dry_run:
             logging.info('DRYRUN: would have run %s.', command_list)
         else:
@@ -77,7 +88,8 @@ class KubeBuild:
                     )
                 logging.debug("command output: %s", output)
             except subprocess.CalledProcessError as err:
-                logging.fatal("Error in running %s. Error: %s", cmd, err)
+                logging.fatal("Error in running %s. Error: %s", command_list,
+                              err)
                 sys.exit(1)
 
         if write_output:
@@ -97,7 +109,7 @@ class KubeBuild:
 
 
     def create_output_dirs(self):
-        subdirs = ['admin', 'bin', 'ca', 'proxy', 'tmp', 'workers']
+        subdirs = ['admin', 'api_server', 'bin', 'ca', 'proxy', 'tmp', 'workers']
 
         if (
             not self.args.clear_output_dir and
@@ -252,6 +264,33 @@ class KubeBuild:
             )
         logging.info("finished creating kube-proxy certificates")
 
+    def create_api_server_cert(self):
+        """create api-server cert."""
+        # NEXT: test with dry run
+        logging.info("beginning to create api server certificates")
+        controller_addresses = self.config.get('controller', 'ip_address')
+
+        self.run_bin_command(
+            cmd=("cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
+                 "-config={TEMPLATE_DIR}/ca-config.json "
+                 "-hostname=%(controller_addresses)s,%(api_server_ip_address)s,127.0.0.1,kubernetes.default "
+                 "-profile=kubernetes "
+                 "{TEMPLATE_DIR}/kubernetes-csr.json" % ({
+                     'controller_addresses': controller_addresses,
+                     'api_server_ip_address': self.config.get(
+                       'general',
+                       'api_server_ip_address')
+                     }
+                 )),
+            write_output='{TMP_DIR}/cfssl_gencert_api_server.output')
+
+        self.run_bin_command(
+            cmd=('cfssljson -bare -f {TMP_DIR}/cfssl_gencert_api_server.output '
+                 '{API_SERVER_DIR}/kubernetes')
+            )
+        logging.info("finished creating api server certificates")
+
 
 
 def main():
@@ -271,6 +310,8 @@ def main():
                         help='Starting IP address for cluster')
     parser.add_argument('--cluster_ip_netmask',
                         help='CIDR netmask for cluster IP addresses.')
+    parser.add_argument('--config',
+                        help='kubify config file.')
     parser.add_argument('--dry_run',
                         action='store_true',
                         help='dont actually do anything.')
@@ -300,6 +341,12 @@ def main():
     logging.basicConfig(
         format='%(asctime)-10s %(filename)s:%(lineno)d %(levelname)s %(message)s',
         level=log_level)
+
+    if args.config is None:
+        logging.critical('required config file not defined. must be '
+                         'with --config')
+        sys.exit(1)
+
     k8s = KubeBuild(args)
     k8s.build()
 
