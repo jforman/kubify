@@ -69,13 +69,10 @@ class KubeBuild:
         self.create_api_server_cert()
 
 
-    def run_bin_command(self, cmd, return_output=False,
-                        cmd_stdin=None,  write_output=''):
-        """given a command, run it from the bin directory of the checkout."""
+    def run_command(self, cmd, return_output=False,
+                    cmd_stdin=None,  write_output=''):
+        """given a command, translate needed paths and run it."""
         command_list = self.translate_path(cmd).split()
-        command_list[0] = os.path.join(self.args.output_dir,
-                                       'bin',
-                                       self.translate_path(command_list[0]))
 
         if self.args.dry_run:
             logging.info('DRYRUN: would have run %s.', command_list)
@@ -170,26 +167,26 @@ class KubeBuild:
     def create_ca_cert_private_key(self):
         """create ca cert and private key."""
         logging.info("beginning to create ca certificates")
-        self.run_bin_command(
-            cmd="cfssl gencert -initca {TEMPLATE_DIR}/ca-csr.json",
+        self.run_command(
+            cmd="{BIN_DIR}/cfssl gencert -initca {TEMPLATE_DIR}/ca-csr.json",
             write_output='{TMP_DIR}/cfssl_initca.output')
-        self.run_bin_command(
-            cmd='cfssljson -bare -f {TMP_DIR}/cfssl_initca.output {CA_DIR}/ca')
+        self.run_command(
+            cmd='{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_initca.output {CA_DIR}/ca')
         logging.info("finished creating ca certificates")
 
 
     def create_admin_client_cert(self):
         """create admin client certificate"""
         logging.info("beginning to create admin client certificates")
-        self.run_bin_command(
-            cmd=("cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+        self.run_command(
+            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                  "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
                  "-config={TEMPLATE_DIR}/ca-config.json "
                  "-profile=kubernetes {TEMPLATE_DIR}/admin-csr.json"),
             write_output='{TMP_DIR}/cfssl_gencert_admin.output')
 
-        self.run_bin_command(
-            cmd=('cfssljson -bare -f {TMP_DIR}/cfssl_gencert_admin.output '
+        self.run_command(
+            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_admin.output '
                  '{ADMIN_DIR}/admin')
             )
         logging.info("finished creating admin client certificates")
@@ -229,8 +226,8 @@ class KubeBuild:
 
             logging.info('creating worker certificate for host %s',
                         worker_hostname)
-            self.run_bin_command(
-                cmd=("cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+            self.run_command(
+                cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                      "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
                      "-config={TEMPLATE_DIR}/ca-config.json "
                      "-profile=kubernetes "
@@ -241,8 +238,8 @@ class KubeBuild:
                         'template_path': template_path,}),
                 write_output='{WORKER_DIR}/cfssl_gencert_worker-%s.output' % worker_hostname)
 
-            self.run_bin_command(
-                cmd=("cfssljson -bare "
+            self.run_command(
+                cmd=("{BIN_DIR}/cfssljson -bare "
                      "-f {WORKER_DIR}/cfssl_gencert_worker-%s.output "
                      "-bare {WORKER_DIR}/%s" % (worker_hostname, worker_hostname))
             )
@@ -251,27 +248,26 @@ class KubeBuild:
     def create_proxy_certs(self):
         """create kube-proxy certs"""
         logging.info("beginning to create kube-proxy certificates")
-        self.run_bin_command(
-            cmd=("cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+        self.run_command(
+            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                  "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
                  "-config={TEMPLATE_DIR}/ca-config.json "
                  "-profile=kubernetes {TEMPLATE_DIR}/kube-proxy-csr.json"),
             write_output='{TMP_DIR}/cfssl_gencert_kube-proxy.output')
 
-        self.run_bin_command(
-            cmd=('cfssljson -bare -f {TMP_DIR}/cfssl_gencert_kube-proxy.output '
+        self.run_command(
+            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_kube-proxy.output '
                  '{PROXY_DIR}/kube-proxy')
             )
         logging.info("finished creating kube-proxy certificates")
 
     def create_api_server_cert(self):
         """create api-server cert."""
-        # NEXT: test with dry run
         logging.info("beginning to create api server certificates")
         controller_addresses = self.config.get('controller', 'ip_address')
 
-        self.run_bin_command(
-            cmd=("cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+        self.run_command(
+            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                  "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
                  "-config={TEMPLATE_DIR}/ca-config.json "
                  "-hostname=%(controller_addresses)s,%(api_server_ip_address)s,127.0.0.1,kubernetes.default "
@@ -285,8 +281,8 @@ class KubeBuild:
                  )),
             write_output='{TMP_DIR}/cfssl_gencert_api_server.output')
 
-        self.run_bin_command(
-            cmd=('cfssljson -bare -f {TMP_DIR}/cfssl_gencert_api_server.output '
+        self.run_command(
+            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_api_server.output '
                  '{API_SERVER_DIR}/kubernetes')
             )
         logging.info("finished creating api server certificates")
