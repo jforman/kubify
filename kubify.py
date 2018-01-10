@@ -28,6 +28,14 @@ class KubeBuild:
         """return the ssl field names as a dict."""
         return dict(self.config.items('certificate'))
 
+    def get_node_ip_addresses(self, node_type):
+        """get list of node IPs."""
+        return self.config.get(node_type, 'ip_addresses')
+
+    def get_node_count(self, node_type):
+        """get number of nodes of a particular type."""
+        return len(self.get_node_ip_addresses(node_type).split(','))
+
     def translate_path(self, path):
         """given string containing special macro, return command line with
         directories substituted in string."""
@@ -64,9 +72,45 @@ class KubeBuild:
         self.download_tools()
         self.create_ca_cert_private_key()
         self.create_admin_client_cert()
-        self.create_client_certs()
+        self.create_worker_certs()
         self.create_proxy_certs()
         self.create_api_server_cert()
+        self.deploy_worker_certs()
+
+    def scp_file(self, local_path, remote_user, remote_host, remote_path):
+        """copy the local file to the remote destination."""
+        ssh_args = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+        self.run_command(
+            "scp %(ssh_args)s %(local_path)s "
+            "%(remote_user)s@%(remote_host)s:%(remote_path)s" % {
+                'ssh_args': ssh_args,
+                'local_path': local_path,
+                'remote_user': remote_user,
+                'remote_host': remote_host,
+                'remote_path': remote_path
+            }
+        )
+
+
+    def deploy_worker_certs(self):
+        """copy the certificates to kubernetes worker nodes."""
+        # NEXT: actually test this deploying to workers
+        nodes = self.config.get('worker', 'ip_addresses').split(',')
+        remote_user = self.config.get('worker', 'remote_user')
+        prefix = self.config.get('worker', 'prefix')
+
+
+        logging.debug('worker nodes to deploy certificates to: %s', nodes)
+        for node_index in range(0, self.get_node_count('worker')):
+            hostname = helpers.hostname_with_index(prefix, node_index)
+            pem_files = ("{CA_DIR}/ca.pem {WORKER_DIR}/%(hostname)s.pem "
+                         "{WORKER_DIR}/%(hostname)s-key.pem " % {
+                             'hostname': hostname})
+            self.scp_file(
+                pem_files,
+                remote_user,
+                nodes[node_index],
+                '~/')
 
 
     def run_command(self, cmd, return_output=False,
@@ -106,7 +150,8 @@ class KubeBuild:
 
 
     def create_output_dirs(self):
-        subdirs = ['admin', 'api_server', 'bin', 'ca', 'proxy', 'tmp', 'workers']
+        subdirs = ['admin', 'api_server', 'bin', 'ca',
+                   'proxy', 'tmp', 'workers']
 
         if (
             not self.args.clear_output_dir and
@@ -192,18 +237,15 @@ class KubeBuild:
         logging.info("finished creating admin client certificates")
 
 
-    def create_client_certs(self):
-        """create certificates for kubernetes clients."""
-        for cur_index in range(0, self.args.cluster_size):
+    def create_worker_certs(self):
+        """create certificates for kubernetes workers."""
+        for cur_index in range(0, self.get_node_count('worker')):
             logging.info('creating csr json template for worker %d.',
                           cur_index)
             worker_hostname = helpers.hostname_with_index(
-                cur_index,
-                self.args.worker_host_prefix)
-            ip_address = helpers.get_ip_from_range(
-                cur_index,
-                self.args.cluster_starting_ip,
-                self.args.cluster_ip_netmask)
+                self.config.get('worker', 'prefix'),
+                cur_index)
+            ip_address = self.get_node_ip_addresses('worker')[cur_index]
             logging.debug('Hostname: %s, IP Address: %s.',
                           worker_hostname, ip_address)
 
@@ -264,7 +306,7 @@ class KubeBuild:
     def create_api_server_cert(self):
         """create api-server cert."""
         logging.info("beginning to create api server certificates")
-        controller_addresses = self.config.get('controller', 'ip_address')
+        controller_addresses = self.config.get('controller', 'ip_addresses')
 
         self.run_command(
             cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
@@ -299,13 +341,6 @@ def main():
                         action='store_true',
                         help=('delete the output directory before '
                               ' generating configs'))
-    parser.add_argument('--cluster_size',
-                        type=int,
-                        default=1)
-    parser.add_argument('--cluster_starting_ip',
-                        help='Starting IP address for cluster')
-    parser.add_argument('--cluster_ip_netmask',
-                        help='CIDR netmask for cluster IP addresses.')
     parser.add_argument('--config',
                         help='kubify config file.')
     parser.add_argument('--dry_run',
@@ -323,10 +358,6 @@ def main():
                         required=True,
                         help=('base directory where generated configs '
                               'will be stored.'))
-    parser.add_argument('--worker_host_prefix',
-                        dest='worker_host_prefix',
-                        default='worker',
-                        help='prefix for hostnames of kubernetes worker notes')
 
     args = parser.parse_args()
 
