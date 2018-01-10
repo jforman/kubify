@@ -75,7 +75,8 @@ class KubeBuild:
         self.create_worker_certs()
         self.create_proxy_certs()
         self.create_api_server_cert()
-        self.deploy_worker_certs()
+        self.deploy_certs('controller')
+        self.deploy_certs('worker')
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path):
         """copy the local file to the remote destination."""
@@ -92,20 +93,26 @@ class KubeBuild:
         )
 
 
-    def deploy_worker_certs(self):
-        """copy the certificates to kubernetes worker nodes."""
-        # NEXT: actually test this deploying to workers
-        nodes = self.config.get('worker', 'ip_addresses').split(',')
-        remote_user = self.config.get('worker', 'remote_user')
-        prefix = self.config.get('worker', 'prefix')
+    def deploy_certs(self, node_type):
+        """copy the certificates to kubernetes controller nodes."""
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
 
-
-        logging.debug('worker nodes to deploy certificates to: %s', nodes)
-        for node_index in range(0, self.get_node_count('worker')):
+        logging.debug('deploying %s certificates.', node_type)
+        for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(prefix, node_index)
-            pem_files = ("{CA_DIR}/ca.pem {WORKER_DIR}/%(hostname)s.pem "
-                         "{WORKER_DIR}/%(hostname)s-key.pem " % {
-                             'hostname': hostname})
+            logging.debug('deploying %s certificates to %s.', node_type,
+                          hostname)
+            if node_type == 'worker':
+                pem_files = ("{CA_DIR}/ca.pem {WORKER_DIR}/%(hostname)s.pem "
+                             "{WORKER_DIR}/%(hostname)s-key.pem " % {
+                                 'hostname': hostname})
+            elif node_type == 'controller':
+                pem_files = ("{CA_DIR}/ca.pem {CA_DIR}/ca-key.pem "
+                             "{API_SERVER_DIR}/kubernetes-key.pem "
+                             "{API_SERVER_DIR}/kubernetes.pem ")
+
             self.scp_file(
                 pem_files,
                 remote_user,
