@@ -77,6 +77,7 @@ class KubeBuild:
         self.create_api_server_cert()
         self.deploy_certs('controller')
         self.deploy_certs('worker')
+        self.create_worker_kubeconfigs()
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path):
         """copy the local file to the remote destination."""
@@ -293,6 +294,47 @@ class KubeBuild:
                      "-bare {WORKER_DIR}/%s" % (worker_hostname, worker_hostname))
             )
 
+
+    def create_worker_kubeconfigs(self):
+        """create worker kubeconfigs."""
+        for cur_index in range(0, self.get_node_count('worker')):
+            worker_hostname = helpers.hostname_with_index(
+                self.config.get('worker', 'prefix'),
+                cur_index)
+            logging.info('creating kubeconfig for %s.', worker_hostname)
+            self.run_command(
+                '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
+                '--certificate-authority={CA_DIR}/ca.pem '
+                '--embed-certs=true '
+                '--server=https://%(api_server)s:6443 '
+                '--kubeconfig={WORKER_DIR}/%(worker)s.kubeconfig' % {
+                    'cluster_name': self.config.get('general', 'cluster_name'),
+                    'api_server': self.config.get(
+                        'general',
+                        'api_server_ip_address'),
+                    'worker': worker_hostname})
+
+            self.run_command(
+                '{BIN_DIR}/kubectl config set-credentials '
+                'system:node:%(worker)s '
+                '--client-certificate={WORKER_DIR}/%(worker)s.pem '
+                '--client-key={WORKER_DIR}/%(worker)s-key.pem '
+                '--embed-certs=true '
+                '--kubeconfig={WORKER_DIR}/%(worker)s.kubeconfig' % {
+                    'worker': worker_hostname})
+
+            self.run_command(
+                '{BIN_DIR}/kubectl config set-context default '
+                '--cluster %(cluster_name)s '
+                '--user=system:node:%(worker)s '
+                '--kubeconfig={WORKER_DIR}/%(worker)s.kubeconfig' % {
+                    'cluster_name': self.config.get('general', 'cluster_name'),
+                    'worker': worker_hostname})
+
+            self.run_command(
+                '{BIN_DIR}/kubectl config use-context default '
+                '--kubeconfig={WORKER_DIR}/%(worker)s.kubeconfig' % {
+                    'worker': worker_hostname})
 
     def create_proxy_certs(self):
         """create kube-proxy certs"""
