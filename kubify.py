@@ -78,6 +78,8 @@ class KubeBuild:
         self.deploy_certs('controller')
         self.deploy_certs('worker')
         self.create_worker_kubeconfigs()
+        self.create_kubeproxy_kubeconfigs()
+        self.deploy_worker_kubeproxy_kubeconfigs()
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path):
         """copy the local file to the remote destination."""
@@ -120,6 +122,27 @@ class KubeBuild:
                 nodes[node_index],
                 '~/')
 
+    def deploy_worker_kubeproxy_kubeconfigs(self):
+        """copy the certificates to kubernetes controller nodes."""
+        node_type = 'worker'
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
+
+        logging.debug('deploying kubeconfigs to workers')
+        for node_index in range(0, self.get_node_count('worker')):
+            hostname = helpers.hostname_with_index(prefix, node_index)
+            logging.debug('deploying kubeconfig to %s.', hostname)
+            kubeconfig_files = (
+                "{WORKER_DIR}/%(hostname)s.kubeconfig "
+                "{PROXY_DIR}/kube-proxy.kubeconfig" % {
+                    'hostname': hostname})
+
+            self.scp_file(
+                kubeconfig_files,
+                remote_user,
+                nodes[node_index],
+                '~/')
 
     def run_command(self, cmd, return_output=False,
                     cmd_stdin=None,  write_output=''):
@@ -335,6 +358,40 @@ class KubeBuild:
                 '{BIN_DIR}/kubectl config use-context default '
                 '--kubeconfig={WORKER_DIR}/%(worker)s.kubeconfig' % {
                     'worker': worker_hostname})
+
+    def create_kubeproxy_kubeconfigs(self):
+        """create kube-proxy kubeconfigs."""
+        logging.info('creating kubeproxy kubeconfigs.')
+        self.run_command(
+            '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
+            '--certificate-authority={CA_DIR}/ca.pem '
+            '--embed-certs=true '
+            '--server=https://%(api_server)s:6443 '
+            '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig' % {
+                'api_server': self.config.get('general',
+                                              'api_server_ip_address'),
+                'cluster_name': self.config.get('general', 'cluster_name')})
+
+        self.run_command(
+            '{BIN_DIR}/kubectl config set-credentials kube-proxy '
+            '--client-certificate={PROXY_DIR}/kube-proxy.pem '
+            '--client-key={PROXY_DIR}/kube-proxy-key.pem '
+            '--embed-certs=true '
+            '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig')
+
+        self.run_command(
+            '{BIN_DIR}/kubectl config set-context default '
+            '--cluster=%(cluster_name)s '
+            '--user=kube-proxy '
+            '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig' % {
+                'cluster_name': self.config.get('general', 'cluster_name')
+                })
+
+        self.run_command(
+            '{BIN_DIR}/kubectl config use-context default '
+            '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig'
+        )
+        logging.info('finished creating kubeproxy kubeconfigs')
 
     def create_proxy_certs(self):
         """create kube-proxy certs"""
