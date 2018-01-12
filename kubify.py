@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import base64
 import ConfigParser
 import logging
 import os
@@ -36,6 +37,10 @@ class KubeBuild:
         """get number of nodes of a particular type."""
         return len(self.get_node_ip_addresses(node_type).split(','))
 
+    def get_random_base64_string(self):
+        """return a random base64 encoded string."""
+        return base64.b64encode(os.urandom(32))
+
     def translate_path(self, path):
         """given string containing special macro, return command line with
         directories substituted in string."""
@@ -49,9 +54,12 @@ class KubeBuild:
         # now we can update the dict path based upon the base ones above
         path_dict.update({
             '{ADMIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'admin'),
-            '{API_SERVER_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'api_server'),
+            '{API_SERVER_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
+                                             'api_server'),
             '{BIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'bin'),
             '{CA_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'ca'),
+            '{ENCRYPTION_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
+                                                       'encryption'),
             '{PROXY_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'proxy'),
             '{TEMPLATE_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'],
                                            'templates'),
@@ -80,6 +88,8 @@ class KubeBuild:
         self.create_worker_kubeconfigs()
         self.create_kubeproxy_kubeconfigs()
         self.deploy_worker_kubeproxy_kubeconfigs()
+        self.create_encryption_configs()
+        self.deploy_encryption_configs()
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path):
         """copy the local file to the remote destination."""
@@ -181,7 +191,7 @@ class KubeBuild:
 
 
     def create_output_dirs(self):
-        subdirs = ['admin', 'api_server', 'bin', 'ca',
+        subdirs = ['admin', 'api_server', 'bin', 'ca', 'encryption',
                    'proxy', 'tmp', 'workers']
 
         if (
@@ -267,6 +277,48 @@ class KubeBuild:
             )
         logging.info("finished creating admin client certificates")
 
+
+    def create_encryption_configs(self):
+        """create kubernetes encryptionconfig file."""
+        logging.info('beginning to create Kubernetes encryptionconfig file.')
+
+        template_vars = {
+            'key': self.get_random_base64_string(),
+            }
+        encryption_config = helpers.render_template(
+            self.translate_path('{TEMPLATE_DIR}/encryption-config.yaml'),
+            template_vars)
+
+        encryption_config_path = self.translate_path(
+            '{ENCRYPTION_DIR}/encryption-config.yaml')
+
+        if self.args.dry_run:
+            logging.info('DRYRUN: would have written encryption config to '
+                         '%s.', encryption_config_path)
+        else:
+            with open(encryption_config_path, 'w') as ecp:
+                ecp.write(encryption_config)
+
+        logging.info('finished creating Kubernetes encryptionconfig file.')
+
+    def deploy_encryption_configs(self):
+        """deploy kubernetes encryptionconfig file."""
+        node_type = 'controller'
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
+
+        logging.debug('deploying encryptionconfig to controllers')
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(prefix, node_index)
+            logging.debug('deploying encryptionconfig to %s.', hostname)
+            ec_file = ("{ENCRYPTION_DIR}/encryption-config.yaml")
+
+            self.scp_file(
+                ec_file,
+                remote_user,
+                nodes[node_index],
+                '~/')
 
     def create_worker_certs(self):
         """create certificates for kubernetes workers."""
