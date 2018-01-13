@@ -25,6 +25,10 @@ class KubeBuild:
         logging.debug('Checkout Path: %s, Output Dir: %s',
                       self.checkout_path, self.args.output_dir)
 
+    def get_node_domain(self):
+        """return the node dns domain."""
+        return self.config.get('general', 'domain_name')
+
     def get_ssl_certificate_fields(self):
         """return the ssl field names as a dict."""
         return dict(self.config.items('certificate'))
@@ -90,6 +94,7 @@ class KubeBuild:
         self.deploy_worker_kubeproxy_kubeconfigs()
         self.create_encryption_configs()
         self.deploy_encryption_configs()
+        self.bootstrap_etcd_cluster('controller')
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path):
         """copy the local file to the remote destination."""
@@ -105,6 +110,20 @@ class KubeBuild:
             }
         )
 
+    def run_command_via_ssh(self, remote_host, remote_user, command):
+        ssh_args = ('-o UserKnownHostsFile=/dev/null '
+                    '-o StrictHostKeyChecking=no '
+                    '-t')
+
+        self.run_command(
+            "ssh %(ssh_args)s %(remote_user)s@%(remote_host)s "
+            "%(command)s" % {
+                'ssh_args': ssh_args,
+                'remote_user': remote_user,
+                'remote_host': remote_host,
+                'command': command }
+            )
+
 
     def deploy_certs(self, node_type):
         """copy the certificates to kubernetes controller nodes."""
@@ -114,7 +133,9 @@ class KubeBuild:
 
         logging.debug('deploying %s certificates.', node_type)
         for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(prefix, node_index)
+            hostname = helpers.hostname_with_index(prefix,
+                                                   self.get_node_domain(),
+                                                   node_index)
             logging.debug('deploying %s certificates to %s.', node_type,
                           hostname)
             if node_type == 'worker':
@@ -141,7 +162,9 @@ class KubeBuild:
 
         logging.debug('deploying kubeconfigs to workers')
         for node_index in range(0, self.get_node_count('worker')):
-            hostname = helpers.hostname_with_index(prefix, node_index)
+            hostname = helpers.hostname_with_index(prefix,
+                                                   self.get_node_domain(),
+                                                   node_index)
             logging.debug('deploying kubeconfig to %s.', hostname)
             kubeconfig_files = (
                 "{WORKER_DIR}/%(hostname)s.kubeconfig "
@@ -310,7 +333,9 @@ class KubeBuild:
 
         logging.debug('deploying encryptionconfig to controllers')
         for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(prefix, node_index)
+            hostname = helpers.hostname_with_index(prefix,
+                                                   self.get_node_domain(),
+                                                   node_index)
             logging.debug('deploying encryptionconfig to %s.', hostname)
             ec_file = ("{ENCRYPTION_DIR}/encryption-config.yaml")
 
@@ -327,6 +352,7 @@ class KubeBuild:
                           cur_index)
             worker_hostname = helpers.hostname_with_index(
                 self.config.get('worker', 'prefix'),
+                self.get_node_domain(),
                 cur_index)
             ip_address = self.get_node_ip_addresses('worker')[cur_index]
             logging.debug('Hostname: %s, IP Address: %s.',
@@ -375,6 +401,7 @@ class KubeBuild:
         for cur_index in range(0, self.get_node_count('worker')):
             worker_hostname = helpers.hostname_with_index(
                 self.config.get('worker', 'prefix'),
+                self.get_node_domain(),
                 cur_index)
             logging.info('creating kubeconfig for %s.', worker_hostname)
             self.run_command(
@@ -487,6 +514,50 @@ class KubeBuild:
             )
         logging.info("finished creating api server certificates")
 
+
+    def bootstrap_etcd_cluster(self, node_type):
+        """copy etcd certificates to directory on host and restart etcd."""
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
+
+        logging.info('bootstraping etcd on %s nodes.', node_type)
+        destination_dir = '/etc/ssl/certs/'
+
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(prefix,
+                                                   self.get_node_domain(),
+                                                   node_index)
+            if node_type == 'controller':
+                cert_files = 'ca.pem kubernetes-key.pem kubernetes.pem'
+            logging.debug('bootstraping etcd on %s.', hostname)
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo cp %(cert_files)s %(destination_dir)s' % {
+                    'cert_files': cert_files,
+                    'destination_dir': destination_dir })
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo chown etcd:etcd %(destination_dir)s/kubernetes.pem' % {
+                    'destination_dir': destination_dir}
+                )
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo chown etcd:etcd %(destination_dir)s/kubernetes-key.pem' % {
+                    'destination_dir': destination_dir}
+                )
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo chown etcd:etcd %(destination_dir)s/ca.pem' % {
+                    'destination_dir': destination_dir}
+                )
 
 
 def main():
