@@ -356,6 +356,12 @@ class KubeBuild:
                 nodes[node_index],
                 '~/')
 
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo cp encryption-config.yaml /etc/ssl/certs/'
+            )
+
     def create_worker_certs(self):
         """create certificates for kubernetes workers."""
         for cur_index in range(0, self.get_node_count('worker')):
