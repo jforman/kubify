@@ -18,6 +18,11 @@ class KubeBuild:
     def __init__(self, cli_args):
         self.args = cli_args
         self.checkout_path = os.path.dirname(os.path.realpath(sys.argv[0]))
+        self.kube_release_dir = ('https://storage.googleapis.com/'
+                                 'kubernetes-release/release/v%(ver)s'
+                                 '/bin/linux/amd64/' % {
+                                     'ver': self.args.kube_ver,
+                                 })
 
         self.config = ConfigParser.SafeConfigParser()
         self.config.read(self.args.config)
@@ -255,8 +260,14 @@ class KubeBuild:
             self.translate_path('{BIN_DIR}/cfssl'),
             'https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64':
             self.translate_path('{BIN_DIR}/cfssljson'),
-            'https://storage.googleapis.com/kubernetes-release/release/v%s/bin/linux/amd64/kubectl' % self.args.kube_ver:
+            os.path.join(self.kube_release_dir, 'kubectl'):
             self.translate_path('{BIN_DIR}/kubectl'),
+            os.path.join(self.kube_release_dir, 'kube-apiserver'):
+            self.translate_path('{BIN_DIR}/kube-apiserver'),
+            os.path.join(self.kube_release_dir, 'kube-controller-manager'):
+            self.translate_path('{BIN_DIR}/kube-controller-manager'),
+            os.path.join(self.kube_release_dir, 'kube-scheduler'):
+            self.translate_path('{BIN_DIR}/kube-scheduler'),
         }
 
         logging.info("downloading new set of binary tools")
