@@ -552,7 +552,7 @@ class KubeBuild:
                 self.config.get('worker', 'prefix'),
                 self.get_node_domain(),
                 cur_index)
-            ip_address = self.get_node_ip_addresses('worker')[cur_index]
+            ip_address = self.get_node_ip_addresses('worker').split(',')[cur_index]
             logging.debug('Hostname: %s, IP Address: %s.',
                           worker_hostname, ip_address)
 
