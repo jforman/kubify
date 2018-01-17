@@ -560,6 +560,12 @@ class KubeBuild:
             self.run_command_via_ssh(
                 nodes[node_index],
                 remote_user,
+                'sudo systemctl stop etcd-member.service'
+            )
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
                 'sudo chown etcd:etcd %(destination_dir)s/kubernetes.pem' % {
                     'destination_dir': destination_dir}
                 )
@@ -576,7 +582,24 @@ class KubeBuild:
                 'sudo chown etcd:etcd %(destination_dir)s/ca.pem' % {
                     'destination_dir': destination_dir}
                 )
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo chown etcd:etcd %(destination_dir)s/ca-key.pem' % {
+                    'destination_dir': destination_dir}
+                )
 
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo systemctl start --no-block etcd-member.service'
+            )
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo systemctl restart --no-block flanneld.service'
+            )
 
 def main():
     """main for Kubify script."""
