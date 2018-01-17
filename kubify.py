@@ -546,7 +546,8 @@ class KubeBuild:
                                                    self.get_node_domain(),
                                                    node_index)
             if node_type == 'controller':
-                cert_files = 'ca.pem kubernetes-key.pem kubernetes.pem'
+                cert_files = ('ca.pem ca-key.pem '
+                              'kubernetes-key.pem kubernetes.pem')
             logging.debug('bootstraping etcd on %s.', hostname)
 
             self.run_command_via_ssh(
