@@ -13,7 +13,8 @@ import urllib
 
 import helpers
 
-class KubeBuild:
+class KubeBuild(object):
+    """define, create, and deploy a kubernetes cluster methods."""
 
     def __init__(self, cli_args):
         self.args = cli_args
@@ -46,10 +47,6 @@ class KubeBuild:
         """get number of nodes of a particular type."""
         return len(self.get_node_ip_addresses(node_type).split(','))
 
-    def get_random_base64_string(self):
-        """return a random base64 encoded string."""
-        return base64.b64encode(os.urandom(32))
-
     def translate_path(self, path):
         """given string containing special macro, return command line with
         directories substituted in string."""
@@ -68,7 +65,7 @@ class KubeBuild:
             '{BIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'bin'),
             '{CA_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'ca'),
             '{ENCRYPTION_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
-                                                       'encryption'),
+                                             'encryption'),
             '{PROXY_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'proxy'),
             '{TEMPLATE_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'],
                                            'templates'),
@@ -120,6 +117,7 @@ class KubeBuild:
 
     def run_command_via_ssh(self, remote_host, remote_user, command,
                             ignore_errors=False):
+        """ssh to remote host and run specified command."""
         ssh_args = ('-o UserKnownHostsFile=/dev/null '
                     '-o StrictHostKeyChecking=no '
                     '-t')
@@ -130,7 +128,7 @@ class KubeBuild:
                 'ssh_args': ssh_args,
                 'remote_user': remote_user,
                 'remote_host': remote_host,
-                'command': command },
+                'command': command},
             ignore_errors=ignore_errors,
             )
 
@@ -188,7 +186,7 @@ class KubeBuild:
                 '~/')
 
     def run_command(self, cmd, return_output=False,
-                    cmd_stdin=None,  write_output='', ignore_errors=False):
+                    cmd_stdin=None, write_output='', ignore_errors=False):
         """given a command, translate needed paths and run it."""
         command_list = self.translate_path(cmd).split()
 
@@ -227,14 +225,13 @@ class KubeBuild:
 
 
     def create_output_dirs(self):
+        """create the directory structure for storing create files."""
         subdirs = ['admin', 'api_server', 'bin', 'ca', 'encryption',
                    'proxy', 'tmp', 'workers']
 
-        if (
-            not self.args.clear_output_dir and
-            os.path.exists(self.args.output_dir) and
-            not self.args.dry_run
-            ):
+        if all([not self.args.clear_output_dir,
+                os.path.exists(self.args.output_dir),
+                not self.args.dry_run]):
             logging.fatal('output directory already exists, but you chose not '
                           'to clear it out first. are old configs still '
                           'present that you still want to save?')
@@ -243,7 +240,7 @@ class KubeBuild:
         if os.path.exists(self.args.output_dir):
             if self.args.dry_run:
                 logging.debug('DRYRUN: would have deleted %s.',
-                             self.args.output_dir)
+                              self.args.output_dir)
             else:
                 shutil.rmtree(self.args.output_dir)
 
@@ -263,6 +260,7 @@ class KubeBuild:
                                          current_dir))
 
     def download_tools(self):
+        """download kubernetes cluster and cfssl cert creation binaries."""
         files_to_get = {
             'https://pkg.cfssl.org/R1.2/cfssl_linux-amd64':
             self.translate_path('{BIN_DIR}/cfssl'),
@@ -315,29 +313,26 @@ class KubeBuild:
                          'INSTALL_DIR': self.config.get('general',
                                                         'install_dir'),
                          'SERVICE_CIDR': self.config.get('general',
-                                                         'service_cidr'),
-        }
+                                                         'service_cidr')}
 
         # write kube-controller-manager
         rendered_template = helpers.render_template(
-            self.translate_path('{TEMPLATE_DIR}/kube-controller-manager.service'),
-                template_vars
+            self.translate_path(
+                '{TEMPLATE_DIR}/kube-controller-manager.service'), template_vars
             )
         template_out_path = self.translate_path(
             '{API_SERVER_DIR}/kube-controller-manager.service',
             )
         if self.args.dry_run:
-            logging.info('DRYRUN: would have written kube-controller-manager.service '
-                         'to %s.', template_out_path)
+            logging.info('DRYRUN: would have written kube-controller-manager.'
+                         'service to %s.', template_out_path)
         else:
             with open(template_out_path, 'w') as tp:
                 tp.write(rendered_template)
 
         # write kube-scheduler
-        rendered_template = helpers.render_template(
-            self.translate_path('{TEMPLATE_DIR}/kube-scheduler.service'),
-                template_vars
-            )
+        rendered_template = helpers.render_template(self.translate_path(
+            '{TEMPLATE_DIR}/kube-scheduler.service'), template_vars)
         template_out_path = self.translate_path(
             '{API_SERVER_DIR}/kube-scheduler.service',
             )
@@ -456,13 +451,13 @@ class KubeBuild:
                 nodes[cur_index],
                 remote_user,
                 ('sudo systemctl enable kube-apiserver kube-controller-manager '
-                'kube-scheduler'))
+                 'kube-scheduler'))
 
             self.run_command_via_ssh(
                 nodes[cur_index],
                 remote_user,
                 ('sudo systemctl start kube-apiserver kube-controller-manager '
-                'kube-scheduler'))
+                 'kube-scheduler'))
 
 
     def create_ca_cert_private_key(self):
@@ -498,7 +493,7 @@ class KubeBuild:
         logging.info('beginning to create Kubernetes encryptionconfig file.')
 
         template_vars = {
-            'key': self.get_random_base64_string(),
+            'key': base64.b64encode(os.urandom(32)),
             }
         encryption_config = helpers.render_template(
             self.translate_path('{TEMPLATE_DIR}/encryption-config.yaml'),
@@ -547,7 +542,7 @@ class KubeBuild:
         """create certificates for kubernetes workers."""
         for cur_index in range(0, self.get_node_count('worker')):
             logging.info('creating csr json template for worker %d.',
-                          cur_index)
+                         cur_index)
             worker_hostname = helpers.hostname_with_index(
                 self.config.get('worker', 'prefix'),
                 self.get_node_domain(),
@@ -574,7 +569,7 @@ class KubeBuild:
                     tp.write(worker_json)
 
             logging.info('creating worker certificate for host %s',
-                        worker_hostname)
+                         worker_hostname)
             self.run_command(
                 cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                      "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
@@ -582,9 +577,9 @@ class KubeBuild:
                      "-profile=kubernetes "
                      "-hostname=%(worker_hostname)s,%(ip_address)s "
                      "%(template_path)s" % {
-                        'worker_hostname': worker_hostname,
-                        'ip_address': ip_address,
-                        'template_path': template_path,}),
+                         'worker_hostname': worker_hostname,
+                         'ip_address': ip_address,
+                         'template_path': template_path,}),
                 write_output='{WORKER_DIR}/cfssl_gencert_worker-%s.output' % worker_hostname)
 
             self.run_command(
@@ -690,20 +685,24 @@ class KubeBuild:
         """create api-server cert."""
         logging.info("beginning to create api server certificates")
         controller_addresses = self.config.get('controller', 'ip_addresses')
+        hostname_arg = ("%(controller_addresses)s,"
+                        "%(api_server_ip_address)s,"
+                        "127.0.0.1,kubernetes.default" % {
+                            'controller_addresses': controller_addresses,
+                            'api_server_ip_address': self.config.get(
+                                'general',
+                                'api_server_ip_address')
+                            })
 
         self.run_command(
             cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                  "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
                  "-config={TEMPLATE_DIR}/ca-config.json "
-                 "-hostname=%(controller_addresses)s,%(api_server_ip_address)s,127.0.0.1,kubernetes.default "
+                 "-hostname=%(hostname_arg)s "
                  "-profile=kubernetes "
                  "{TEMPLATE_DIR}/kubernetes-csr.json" % ({
-                     'controller_addresses': controller_addresses,
-                     'api_server_ip_address': self.config.get(
-                       'general',
-                       'api_server_ip_address')
-                     }
-                 )),
+                     'hostname_arg': hostname_arg,
+                     })),
             write_output='{TMP_DIR}/cfssl_gencert_api_server.output')
 
         self.run_command(
@@ -736,7 +735,7 @@ class KubeBuild:
                 remote_user,
                 'sudo cp %(cert_files)s %(destination_dir)s' % {
                     'cert_files': cert_files,
-                    'destination_dir': destination_dir })
+                    'destination_dir': destination_dir})
 
             self.run_command_via_ssh(
                 nodes[node_index],
@@ -813,9 +812,9 @@ def main():
     args = parser.parse_args()
 
     if args.debug:
-        log_level=logging.DEBUG
+        log_level = logging.DEBUG
     else:
-        log_level=logging.INFO
+        log_level = logging.INFO
     logging.basicConfig(
         format='%(asctime)-10s %(filename)s:%(lineno)d %(levelname)s %(message)s',
         level=log_level)
