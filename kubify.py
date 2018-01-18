@@ -64,6 +64,7 @@ class KubeBuild(object):
                                              'api_server'),
             '{BIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'bin'),
             '{CA_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'ca'),
+            '{CONFIG_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'], 'configs'),
             '{ENCRYPTION_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
                                              'encryption'),
             '{PROXY_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'proxy'),
@@ -98,6 +99,7 @@ class KubeBuild(object):
         self.deploy_encryption_configs()
         self.bootstrap_etcd_cluster('controller')
         self.bootstrap_control_plane()
+        self.bootstrap_control_plane_rbac()
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
                  ignore_errors=False):
@@ -780,6 +782,29 @@ class KubeBuild(object):
                 remote_user,
                 'sudo systemctl restart --no-block flanneld.service'
             )
+
+    def bootstrap_control_plane_rbac(self):
+        """bootstrap control plane kubernetes rbac configs."""
+
+        files = ['kube_apiserver_to_kubelet_clusterrole.yaml',
+                 'kube_apiserver_to_kubelet_clusterrolebinding.yaml']
+
+        remote_host =  self.config.get('controller',
+                                       'ip_addresses').split(',')[0]
+        for cur_file in files:
+            self.scp_file(
+                '{CONFIG_DIR}/' + cur_file,
+                self.config.get('controller', 'remote_user'),
+                remote_host,
+                '~/')
+
+            self.run_command_via_ssh(
+                remote_host,
+                self.config.get('controller', 'remote_user'),
+                '%(install_dir)s/bin/kubectl apply -f %(config)s' % {
+                    'install_dir': self.config.get('general',
+                                                   'install_dir'),
+                    'config': cur_file})
 
 def main():
     """main for Kubify script."""
