@@ -118,13 +118,13 @@ class KubeBuild(object):
         )
 
     def run_command_via_ssh(self, remote_host, remote_user, command,
-                            ignore_errors=False):
+                            ignore_errors=False, return_output=False):
         """ssh to remote host and run specified command."""
         ssh_args = ('-o UserKnownHostsFile=/dev/null '
                     '-o StrictHostKeyChecking=no '
                     '-t')
 
-        self.run_command(
+        output = self.run_command(
             "ssh %(ssh_args)s %(remote_user)s@%(remote_host)s "
             "%(command)s" % {
                 'ssh_args': ssh_args,
@@ -132,7 +132,11 @@ class KubeBuild(object):
                 'remote_host': remote_host,
                 'command': command},
             ignore_errors=ignore_errors,
+            return_output=return_output,
             )
+
+        if return_output:
+            return output
 
 
     def deploy_certs(self, node_type):
