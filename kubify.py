@@ -27,6 +27,7 @@ class KubeBuild(object):
 
         self.config = ConfigParser.SafeConfigParser()
         self.config.read(self.args.config)
+        self.node_pod_cidr = {}
 
         logging.debug('Checkout Path: %s, Output Dir: %s',
                       self.checkout_path, self.args.output_dir)
@@ -68,6 +69,8 @@ class KubeBuild(object):
             '{ENCRYPTION_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
                                              'encryption'),
             '{PROXY_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'proxy'),
+            '{SCRIPTS_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'],
+                                          'scripts'),
             '{TEMPLATE_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'],
                                            'templates'),
             '{TMP_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'tmp'),
@@ -100,6 +103,7 @@ class KubeBuild(object):
         self.bootstrap_etcd_cluster('controller')
         self.bootstrap_control_plane()
         self.bootstrap_control_plane_rbac()
+        self.bootstrap_workers()
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
                  ignore_errors=False):
@@ -809,6 +813,48 @@ class KubeBuild(object):
                     'install_dir': self.config.get('general',
                                                    'install_dir'),
                     'config': cur_file})
+
+    def bootstrap_workers(self):
+        """bootstrap kubernetes workers."""
+        self.set_node_pod_cidr('worker')
+
+    def set_node_pod_cidr(self, node_type):
+        """store dict of nodeIP:podCIDR associations."""
+
+        remote_host =  self.config.get(node_type,
+                                       'ip_addresses').split(',')[0]
+
+        self.node_pod_cidr[node_type] = {}
+
+        logging.info("determining %s pod CIDR's on %s.", node_type,
+                     remote_host)
+        self.scp_file(
+            '{SCRIPTS_DIR}/determine_node_podcidr.sh',
+            self.config.get(node_type, 'remote_user'),
+            remote_host,
+            '~/'
+        )
+
+        self.run_command_via_ssh(
+            remote_host,
+            self.config.get(node_type, 'remote_user'),
+            'chmod +x ~/determine_node_podcidr.sh')
+
+        output = self.run_command_via_ssh(
+            remote_host,
+            self.config.get(node_type, 'remote_user'),
+            '~/determine_node_podcidr.sh https://127.0.0.1:2379',
+            return_output=True)
+
+        nodepod_pairs = output.split(',')
+        logging.info('node_pod pairs for %s: %s', node_type, nodepod_pairs)
+
+        for cur_pair in nodepod_pairs:
+            node_pair = cur_pair.split(':')
+            self.node_pod_cidr[node_type][node_pair[0]] = node_pair[1]
+
+        logging.debug('node_pod_cidr pairs: %s.', self.node_pod_cidr)
+
 
 def main():
     """main for Kubify script."""
