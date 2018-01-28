@@ -104,7 +104,7 @@ class KubeBuild(object):
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
                  ignore_errors=False):
         """copy the local file to the remote destination."""
-        ssh_args = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+        ssh_args = "-q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
         self.run_command(
             "scp %(ssh_args)s %(local_path)s "
             "%(remote_user)s@%(remote_host)s:%(remote_path)s" % {
@@ -122,7 +122,7 @@ class KubeBuild(object):
         """ssh to remote host and run specified command."""
         ssh_args = ('-o UserKnownHostsFile=/dev/null '
                     '-o StrictHostKeyChecking=no '
-                    '-t')
+                    '-t -q')
 
         output = self.run_command(
             "ssh %(ssh_args)s %(remote_user)s@%(remote_host)s "
