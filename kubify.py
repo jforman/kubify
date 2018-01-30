@@ -21,7 +21,7 @@ class KubeBuild(object):
         self.checkout_path = os.path.dirname(os.path.realpath(sys.argv[0]))
         self.kube_release_dir = ('https://storage.googleapis.com/'
                                  'kubernetes-release/release/v%(ver)s'
-                                 '/bin/linux/amd64/' % {
+                                 '/bin/linux/amd64' % {
                                      'ver': self.args.kube_ver,
                                  })
 
