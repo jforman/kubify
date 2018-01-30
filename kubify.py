@@ -821,6 +821,7 @@ class KubeBuild(object):
     def bootstrap_workers(self):
         """bootstrap kubernetes workers."""
         self.set_node_pod_cidr('worker')
+        self.install_worker_binaries()
 
     def set_node_pod_cidr(self, node_type):
         """store dict of nodeIP:podCIDR associations."""
@@ -856,6 +857,63 @@ class KubeBuild(object):
         for cur_pair in nodepod_pairs:
             node_pair = cur_pair.split(':')
             self.node_pod_cidr[node_type][node_pair[0]] = node_pair[1]
+    def install_worker_binaries(self):
+        """install kubernetes and networking binaries on worker nodes."""
+        node_type = 'worker'
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+
+        logging.info('bootstraping kubernetes %s nodes.', node_type)
+
+        for node_index in range(0, self.get_node_count(node_type)):
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'wget -q --show-progress --https-only --timestamping \
+  https://github.com/containernetworking/plugins/releases/download/v0.6.0/cni-plugins-amd64-v0.6.0.tgz')
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                '''sudo mkdir -p \
+                /etc/cni/net.d \
+                /opt/cni/bin \
+                /var/lib/kubelet \
+                /var/lib/kube-proxy \
+                /var/lib/kubernetes \
+                /var/run/kubernetes \
+                %(install_dir)s/bin''' % {'install_dir': self.config.get(
+                    'general',
+                    'install_dir')})
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo tar -xvf cni-plugins-amd64-v0.6.0.tgz -C /opt/cni/bin/')
+
+            kube_bins = ['kubectl', 'kubelet', 'kube-proxy']
+            for cur_file in kube_bins:
+                self.scp_file(
+                    '{BIN_DIR}/%s' % cur_file,
+                    remote_user,
+                    nodes[node_index],
+                    '~')
+                self.run_command_via_ssh(
+                    nodes[node_index],
+                    remote_user,
+                    'sudo cp %(cur_file)s %(install_dir)s/bin/' % {
+                        'cur_file': cur_file,
+                        'install_dir': self.config.get('general', 'install_dir')
+                    }
+                )
+                self.run_command_via_ssh(
+                    nodes[node_index],
+                    remote_user,
+                    'sudo chmod +x %(install_dir)s/bin/%(cur_file)s' % {
+                        'cur_file': cur_file,
+                        'install_dir': self.config.get('general', 'install_dir'),
+                    }
+                )
 
         logging.debug('node_pod_cidr pairs: %s.', self.node_pod_cidr)
 
