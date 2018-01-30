@@ -278,10 +278,14 @@ class KubeBuild(object):
             self.translate_path('{BIN_DIR}/cfssljson'),
             os.path.join(self.kube_release_dir, 'kubectl'):
             self.translate_path('{BIN_DIR}/kubectl'),
+            os.path.join(self.kube_release_dir, 'kubelet'):
+            self.translate_path('{BIN_DIR}/kubelet'),
             os.path.join(self.kube_release_dir, 'kube-apiserver'):
             self.translate_path('{BIN_DIR}/kube-apiserver'),
             os.path.join(self.kube_release_dir, 'kube-controller-manager'):
             self.translate_path('{BIN_DIR}/kube-controller-manager'),
+            os.path.join(self.kube_release_dir, 'kube-proxy'):
+            self.translate_path('{BIN_DIR}/kube-proxy'),
             os.path.join(self.kube_release_dir, 'kube-scheduler'):
             self.translate_path('{BIN_DIR}/kube-scheduler'),
         }
