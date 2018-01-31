@@ -822,6 +822,66 @@ class KubeBuild(object):
         """bootstrap kubernetes workers."""
         self.set_node_pod_cidr('worker')
         self.install_worker_binaries()
+        self.configure_worker_cni_networking()
+
+    def configure_worker_cni_networking(self):
+        """create cni configs and install on worker nodes."""
+        nodes = self.config.get('worker', 'ip_addresses').split(',')
+        for cur_index in range(0, self.get_node_count('worker')):
+            worker_hostname = helpers.hostname_with_index(
+                self.config.get('worker', 'prefix'),
+                self.get_node_domain(),
+                cur_index)
+            worker_ip_address = self.config.get(
+                'worker',
+                'ip_addresses').split(',')[cur_index]
+            logging.debug('self.node_pod_cidr: %s', self.node_pod_cidr)
+            template_vars = {
+                'POD_CIDR': self.node_pod_cidr['worker'][worker_ip_address]
+                }
+            template_out_path = self.translate_path(
+                '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
+                    'worker_hostname': worker_hostname})
+
+            rendered_template = helpers.render_template(
+                self.translate_path('{TEMPLATE_DIR}/cni/10-bridge.conf'),
+                template_vars
+            )
+            if self.args.dry_run:
+                logging.info('DRYRUN: would have written kube-controller-'
+                             'manager service to %s.', template_out_path)
+            else:
+                with open(template_out_path, 'w') as tp:
+                    tp.write(rendered_template)
+
+            self.scp_file(
+                '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
+                    'worker_hostname': worker_hostname,
+                },
+                self.config.get('worker', 'remote_user'),
+                nodes[cur_index],
+                '~'
+            )
+
+            self.scp_file(
+                '{TEMPLATE_DIR}/cni/99-loopback.conf',
+                self.config.get('worker', 'remote_user'),
+                nodes[cur_index],
+                '~'
+            )
+            self.run_command_via_ssh(
+                nodes[cur_index],
+                self.config.get('worker', 'remote_user'),
+                'sudo cp %(worker_hostname)s-cni-10-bridge.conf /etc/cni/net.d/10-bridge.conf' % {
+                    'worker_hostname': worker_hostname
+                }
+            )
+            self.run_command_via_ssh(
+                nodes[cur_index],
+                self.config.get('worker', 'remote_user'),
+                'sudo cp 99-loopback.conf /etc/cni/net.d/',
+            )
+
 
     def set_node_pod_cidr(self, node_type):
         """store dict of nodeIP:podCIDR associations."""
