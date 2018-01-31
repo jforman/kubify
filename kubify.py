@@ -801,8 +801,8 @@ class KubeBuild(object):
         files = ['kube_apiserver_to_kubelet_clusterrole.yaml',
                  'kube_apiserver_to_kubelet_clusterrolebinding.yaml']
 
-        remote_host =  self.config.get('controller',
-                                       'ip_addresses').split(',')[0]
+        remote_host = self.config.get('controller',
+                                      'ip_addresses').split(',')[0]
         for cur_file in files:
             self.scp_file(
                 '{CONFIG_DIR}/' + cur_file,
@@ -886,8 +886,8 @@ class KubeBuild(object):
     def set_node_pod_cidr(self, node_type):
         """store dict of nodeIP:podCIDR associations."""
 
-        remote_host =  self.config.get(node_type,
-                                       'ip_addresses').split(',')[0]
+        remote_host = self.config.get(node_type,
+                                      'ip_addresses').split(',')[0]
 
         self.node_pod_cidr[node_type] = {}
 
