@@ -836,6 +836,15 @@ class KubeBuild(object):
                 'worker',
                 'ip_addresses').split(',')[cur_index]
             logging.debug('self.node_pod_cidr: %s', self.node_pod_cidr)
+            template_vars = {}
+            if self.args.dry_run:
+                template_vars.update({
+                    'POD_CIDR': 'DRY_RUN_FILLER'
+                })
+            else:
+                template_vars.update({
+                    'POD_CIDR': self.node_pod_cidr['worker'][worker_ip_address]
+                })
             template_vars = {
                 'POD_CIDR': self.node_pod_cidr['worker'][worker_ip_address]
                 }
