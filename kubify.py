@@ -205,10 +205,10 @@ class KubeBuild(object):
         command_list = self.translate_path(cmd).split()
 
         if self.args.dry_run:
-            logging.info('DRYRUN: would have run %s.', command_list)
+            logging.info('DRYRUN: would have run %s.', " ".join(command_list))
         else:
             try:
-                logging.debug('running %s', command_list)
+                logging.debug('running %s', " ".join(command_list))
                 output = subprocess.check_output(
                     command_list,
                     stdin=cmd_stdin,
