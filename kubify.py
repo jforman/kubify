@@ -68,6 +68,7 @@ class KubeBuild(object):
             '{CONFIG_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'], 'configs'),
             '{ENCRYPTION_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
                                              'encryption'),
+            '{ETCD_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'etcd'),
             '{PROXY_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'proxy'),
             '{SCRIPTS_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'],
                                           'scripts'),
@@ -100,10 +101,13 @@ class KubeBuild(object):
         self.deploy_worker_kubeproxy_kubeconfigs()
         self.create_encryption_configs()
         self.deploy_encryption_configs()
-        self.bootstrap_etcd_cluster('controller')
         self.bootstrap_control_plane()
         self.bootstrap_control_plane_rbac()
         self.bootstrap_workers()
+        self.create_etcd_certs('controller')
+        self.create_etcd_certs('worker')
+        self.deploy_etcd_certs('controller')
+        self.deploy_etcd_certs('worker')
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
                  ignore_errors=False):
@@ -236,7 +240,7 @@ class KubeBuild(object):
 
     def create_output_dirs(self):
         """create the directory structure for storing create files."""
-        subdirs = ['admin', 'api_server', 'bin', 'ca', 'encryption',
+        subdirs = ['admin', 'api_server', 'bin', 'ca', 'encryption', 'etcd',
                    'proxy', 'tmp', 'workers']
 
         if all([not self.args.clear_output_dir,
@@ -552,6 +556,49 @@ class KubeBuild(object):
                 'sudo cp encryption-config.yaml /etc/ssl/certs/'
             )
 
+    def create_etcd_certs(self, node_type):
+        """create certificates for etcd peers."""
+        for cur_index in range(0, self.get_node_count(node_type)):
+            logging.info('creating etcd certs for node type %s.', node_type)
+            hostname = helpers.hostname_with_index(
+                self.config.get(node_type, 'prefix'),
+                self.get_node_domain(),
+                cur_index)
+
+            template_vars = {
+                'HOSTNAME': hostname,
+            }
+            etcd_json = helpers.render_template(
+                self.translate_path('{TEMPLATE_DIR}/etcd-csr.json'),
+                template_vars)
+
+            template_path = self.translate_path(
+                '{ETCD_DIR}/%s_etcd-csr.json' % hostname)
+
+            if self.args.dry_run:
+                logging.info('DRYRUN: would have written etcd csr json '
+                             'template to %s.', template_path)
+            else:
+                with open(template_path, 'w') as tp:
+                    tp.write(etcd_json)
+
+            logging.info('creating etcd certificate for host %s', hostname)
+            self.run_command(
+                cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+                     "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
+                     "-config={TEMPLATE_DIR}/ca-config.json "
+                     "-profile=kubernetes "
+                     "-hostname=%(hostname_arg)s,127.0.0.1 "
+                     "%(template_path)s" % {
+                         'hostname_arg': self.config.get(node_type,
+                                                         'ip_addresses'),
+                         'template_path': template_path,}),
+                write_output='{ETCD_DIR}/cfssl_gencert_etcd-%s.output' % hostname)
+
+            self.run_command(
+                cmd=("{BIN_DIR}/cfssljson -bare "
+                     "-f {ETCD_DIR}/cfssl_gencert_etcd-%s.output "
+                     "-bare {ETCD_DIR}/%s-etcd" % (hostname, hostname))
     def create_worker_certs(self):
         """create certificates for kubernetes workers."""
         for cur_index in range(0, self.get_node_count('worker')):
@@ -726,56 +773,57 @@ class KubeBuild(object):
         logging.info("finished creating api server certificates")
 
 
-    def bootstrap_etcd_cluster(self, node_type):
+    def deploy_etcd_certs(self, node_type):
         """copy etcd certificates to directory on host and restart etcd."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         remote_user = self.config.get(node_type, 'remote_user')
-        prefix = self.config.get(node_type, 'prefix')
 
         logging.info('bootstraping etcd on %s nodes.', node_type)
         destination_dir = '/etc/ssl/certs/'
 
         for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(prefix,
-                                                   self.get_node_domain(),
-                                                   node_index)
-            if node_type == 'controller':
-                cert_files = ('ca.pem ca-key.pem '
-                              'kubernetes-key.pem kubernetes.pem')
+            hostname = helpers.hostname_with_index(
+                self.config.get(node_type, 'prefix'),
+                self.get_node_domain(),
+                node_index)
+
+            cert_files = (
+                '{CA_DIR}/ca.pem {ETCD_DIR}/%(hostname)s-etcd.pem '
+                '{ETCD_DIR}/%(hostname)s-etcd-key.pem' % {
+                    'hostname': hostname})
+
             logging.debug('bootstraping etcd on %s.', hostname)
 
-            self.run_command_via_ssh(
-                nodes[node_index],
+            self.scp_file(
+                cert_files,
                 remote_user,
-                'sudo cp %(cert_files)s %(destination_dir)s' % {
-                    'cert_files': cert_files,
-                    'destination_dir': destination_dir})
-
-            self.run_command_via_ssh(
                 nodes[node_index],
-                remote_user,
-                'sudo systemctl stop etcd-member.service'
+                '~/'
             )
 
             self.run_command_via_ssh(
                 nodes[node_index],
                 remote_user,
-                'sudo chown etcd:etcd %(destination_dir)s/kubernetes.pem' % {
-                    'destination_dir': destination_dir}
-                )
+                'sudo mkdir -p %s' % destination_dir,
+            )
 
             self.run_command_via_ssh(
                 nodes[node_index],
                 remote_user,
-                'sudo chown etcd:etcd %(destination_dir)s/kubernetes-key.pem' % {
-                    'destination_dir': destination_dir}
-                )
+                ('sudo cp ca.pem %(hostname)s-etcd.pem %(hostname)s-etcd-key.pem '
+                '%(destination_dir)s' % {
+                    'hostname': hostname,
+                    'destination_dir': destination_dir }))
+
             self.run_command_via_ssh(
                 nodes[node_index],
                 remote_user,
-                'sudo chown etcd:etcd %(destination_dir)s/ca.pem' % {
-                    'destination_dir': destination_dir}
-                )
+                ('sudo chown etcd:etcd %(destination_dir)s/ca.pem '
+                 '%(destination_dir)s/%(hostname)s-etcd.pem '
+                 '%(destination_dir)s/%(hostname)s-etcd-key.pem ' % {
+                     'hostname': hostname,
+                     'destination_dir': destination_dir }))
+
             self.run_command_via_ssh(
                 nodes[node_index],
                 remote_user,
