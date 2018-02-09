@@ -96,6 +96,10 @@ class KubeBuild(object):
         self.create_api_server_cert()
         self.deploy_certs('controller')
         self.deploy_certs('worker')
+        self.create_etcd_certs('controller')
+        self.create_etcd_certs('worker')
+        self.deploy_etcd_certs('controller')
+        self.deploy_etcd_certs('worker')
         self.create_worker_kubeconfigs()
         self.create_kubeproxy_kubeconfigs()
         self.deploy_worker_kubeproxy_kubeconfigs()
@@ -104,10 +108,6 @@ class KubeBuild(object):
         self.bootstrap_control_plane()
         self.bootstrap_control_plane_rbac()
         self.bootstrap_workers()
-        self.create_etcd_certs('controller')
-        self.create_etcd_certs('worker')
-        self.deploy_etcd_certs('controller')
-        self.deploy_etcd_certs('worker')
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
                  ignore_errors=False):
@@ -827,9 +827,8 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 nodes[node_index],
                 remote_user,
-                'sudo chown etcd:etcd %(destination_dir)s/ca-key.pem' % {
-                    'destination_dir': destination_dir}
-                )
+                'sudo systemctl stop etcd-member.service',
+                ignore_errors=True)
 
             self.run_command_via_ssh(
                 nodes[node_index],
