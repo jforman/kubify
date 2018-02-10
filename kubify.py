@@ -610,6 +610,7 @@ class KubeBuild(object):
                      "-f {ETCD_DIR}/cfssl_gencert_etcd-%(hostname)s.output "
                      "-bare {ETCD_DIR}/%(hostname)s-etcd" % {
                          'hostname': hostname}))
+
     def create_worker_certs(self):
         """create certificates for kubernetes workers."""
         for cur_index in range(0, self.get_node_count('worker')):
@@ -620,6 +621,7 @@ class KubeBuild(object):
                 self.get_node_domain(),
                 cur_index)
             ip_address = self.get_node_ip_addresses('worker').split(',')[cur_index]
+
             logging.debug('Hostname: %s, IP Address: %s.',
                           worker_hostname, ip_address)
 
@@ -1047,7 +1049,6 @@ class KubeBuild(object):
                     }
                 )
 
-        logging.debug('node_pod_cidr pairs: %s.', self.node_pod_cidr)
 
 
 def main():
