@@ -94,12 +94,12 @@ class KubeBuild(object):
         self.create_worker_certs()
         self.create_proxy_certs()
         self.create_api_server_cert()
-        self.deploy_certs('controller')
-        self.deploy_certs('worker')
         self.create_etcd_certs('controller')
         self.create_etcd_certs('worker')
         self.deploy_etcd_certs('controller')
         self.deploy_etcd_certs('worker')
+        self.deploy_kubernetes_certs('controller')
+        self.deploy_kubernetes_certs('worker')
         self.create_worker_kubeconfigs()
         self.create_kubeproxy_kubeconfigs()
         self.deploy_worker_kubeproxy_kubeconfigs()
@@ -147,8 +147,8 @@ class KubeBuild(object):
             return output
 
 
-    def deploy_certs(self, node_type):
-        """copy the certificates to kubernetes controller nodes."""
+    def deploy_kubernetes_certs(self, node_type):
+        """copy the certificates to kubernetes nodes of node_type."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         remote_user = self.config.get(node_type, 'remote_user')
         prefix = self.config.get(node_type, 'prefix')
@@ -162,6 +162,9 @@ class KubeBuild(object):
                           hostname)
             if node_type == 'worker':
                 pem_files = ("{CA_DIR}/ca.pem {WORKER_DIR}/%(hostname)s.pem "
+                             "{CA_DIR}/ca-key.pem "
+                             "{API_SERVER_DIR}/kubernetes-key.pem "
+                             "{API_SERVER_DIR}/kubernetes.pem "
                              "{WORKER_DIR}/%(hostname)s-key.pem " % {
                                  'hostname': hostname})
             elif node_type == 'controller':
