@@ -600,8 +600,9 @@ class KubeBuild(object):
 
             self.run_command(
                 cmd=("{BIN_DIR}/cfssljson -bare "
-                     "-f {ETCD_DIR}/cfssl_gencert_etcd-%s.output "
-                     "-bare {ETCD_DIR}/%s-etcd" % (hostname, hostname))
+                     "-f {ETCD_DIR}/cfssl_gencert_etcd-%(hostname)s.output "
+                     "-bare {ETCD_DIR}/%(hostname)s-etcd" % {
+                         'hostname': hostname}))
     def create_worker_certs(self):
         """create certificates for kubernetes workers."""
         for cur_index in range(0, self.get_node_count('worker')):
