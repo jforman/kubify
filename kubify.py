@@ -206,6 +206,7 @@ class KubeBuild(object):
                     cmd_stdin=None, write_output='', ignore_errors=False):
         """given a command, translate needed paths and run it."""
         command_list = self.translate_path(cmd).split()
+        output = ""
 
         if self.args.dry_run:
             logging.info('DRYRUN: would have run %s.', " ".join(command_list))
