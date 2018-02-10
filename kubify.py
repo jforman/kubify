@@ -929,7 +929,8 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 nodes[cur_index],
                 self.config.get('worker', 'remote_user'),
-                'sudo cp %(worker_hostname)s-cni-10-bridge.conf /etc/cni/net.d/10-bridge.conf' % {
+                ('sudo cp %(worker_hostname)s-cni-10-bridge.conf '
+                 '/etc/cni/net.d/10-bridge.conf') % {
                     'worker_hostname': worker_hostname
                 }
             )
