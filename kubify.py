@@ -176,7 +176,7 @@ class KubeBuild(object):
                 '~/')
 
     def deploy_worker_kubeproxy_kubeconfigs(self):
-        """copy the certificates to kubernetes controller nodes."""
+        """copy the certificates to kubernetes worker nodes."""
         node_type = 'worker'
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         remote_user = self.config.get(node_type, 'remote_user')
