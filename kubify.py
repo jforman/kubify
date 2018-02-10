@@ -466,6 +466,13 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 nodes[cur_index],
                 remote_user,
+                ('sudo cp kubernetes.pem kubernetes-key.pem ca.pem ca-key.pem '
+                 '/etc/ssl/certs/')
+            )
+
+            self.run_command_via_ssh(
+                nodes[cur_index],
+                remote_user,
                 'sudo systemctl daemon-reload')
 
             self.run_command_via_ssh(
