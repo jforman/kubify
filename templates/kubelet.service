@@ -1,0 +1,29 @@
+[Unit]
+Description=Kubernetes Kubelet
+Documentation=https://github.com/kubernetes/kubernetes
+
+[Service]
+ExecStart={{ INSTALL_DIR }}/bin/kubelet \
+  --alsologtostderr \
+  --allow-privileged=true \
+  --anonymous-auth=false \
+  --authorization-mode=Webhook \
+  --client-ca-file=/var/lib/kubernetes/ca.pem \
+  --cloud-provider= \
+  --cluster-dns={{ CLUSTER_DNS }} \
+  --cluster-domain=cluster.local \
+  --container-runtime=rkt \
+  --image-pull-progress-deadline=2m \
+  --kubeconfig=/var/lib/kubelet/kubeconfig \
+  --network-plugin=cni \
+  --pod-cidr={{ POD_CIDR }} \
+  --register-node=true \
+  --runtime-request-timeout=15m \
+  --tls-cert-file=/var/lib/kubelet/{{ HOSTNAME }}.pem \
+  --tls-private-key-file=/var/lib/kubelet/{{ HOSTNAME }}-key.pem \
+  --v=4
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

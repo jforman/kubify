@@ -883,6 +883,7 @@ class KubeBuild(object):
         self.set_node_pod_cidr('worker')
         self.install_worker_binaries()
         self.configure_worker_cni_networking()
+        self.configure_worker_kubelet_kubeproxy()
 
     def configure_worker_cni_networking(self):
         """create cni configs and install on worker nodes."""
@@ -1049,6 +1050,149 @@ class KubeBuild(object):
                     }
                 )
 
+    def configure_worker_kubelet_kubeproxy(self):
+        """create kubelet configuration for worker and install it on node."""
+        node_type = 'worker'
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
+
+        logging.debug('deploying kubelet and kube-proxy to %s nodes.',
+                      node_type)
+
+        template_vars = {
+            'CLUSTER_CIDR': self.config.get('general', 'cluster_cidr'),
+        }
+        kube_proxy_config = helpers.render_template(
+            self.translate_path('{TEMPLATE_DIR}/kube-proxy.service'),
+            template_vars)
+
+        template_path = self.translate_path(
+            '{WORKER_DIR}/kube-proxy.service')
+        if self.args.dry_run:
+            logging.info('DRYRUN: would have kube-proxy.service '
+                         'template to %s.', template_path)
+        else:
+            with open(template_path, 'w') as tp:
+                tp.write(kube_proxy_config)
+
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(prefix,
+                                                   self.get_node_domain(),
+                                                   node_index)
+            logging.debug('configuring kubelet and kube-proxy on %s.',
+                          hostname)
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo mkdir -p /var/lib/kubelet/'
+            )
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo cp %(hostname)s-key.pem %(hostname)s.pem /var/lib/kubelet/' % {
+                    'hostname': hostname
+                }
+            )
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo cp %(hostname)s.kubeconfig /var/lib/kubelet/kubeconfig' % {
+                    'hostname': hostname
+                }
+            )
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo cp ca.pem /var/lib/kubernetes/' % {
+                    'hostname': hostname
+                }
+            )
+
+            template_vars = {
+                'CLUSTER_DNS': self.config.get('general', 'cluster_dns'),
+                'HOSTNAME': hostname,
+                'INSTALL_DIR': self.config.get('general', 'install_dir')
+                }
+            if self.args.dry_run:
+                template_vars.update({
+                    'POD_CIDR': 'DRY_RUN_FILLER'
+                })
+            else:
+                template_vars.update({
+                    'POD_CIDR': self.node_pod_cidr['worker'][nodes[node_index]]
+                })
+
+            template_out_path = self.translate_path(
+                '{WORKER_DIR}/%(worker_hostname)s.kubelet.service' % {
+                    'worker_hostname': hostname})
+
+            rendered_template = helpers.render_template(
+                self.translate_path('{TEMPLATE_DIR}/kubelet.service'),
+                template_vars
+            )
+            if self.args.dry_run:
+                logging.info('DRYRUN: would have written kube-controller-'
+                             'manager service to %s.', template_out_path)
+            else:
+                with open(template_out_path, 'w') as tp:
+                    tp.write(rendered_template)
+
+            self.scp_file(
+                '{WORKER_DIR}/%(worker_hostname)s.kubelet.service' % {
+                    'worker_hostname': hostname},
+                self.config.get('worker', 'remote_user'),
+                nodes[node_index],
+                '~/')
+
+            self.scp_file(
+                '{WORKER_DIR}/kube-proxy.service',
+                self.config.get('worker', 'remote_user'),
+                nodes[node_index],
+                '~/')
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo cp kube-proxy.service /etc/systemd/system/'
+                )
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo cp %(worker_hostname)s.kubelet.service /etc/systemd/system/kubelet.service' % {
+                    'worker_hostname': hostname})
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo cp kube-proxy.kubeconfig /var/lib/kube-proxy/kubeconfig'
+            )
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo systemctl stop kubelet kube-proxy',
+                ignore_errors=True)
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo systemctl daemon-reload')
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo systemctl enable kubelet kube-proxy')
+
+            self.run_command_via_ssh(
+                nodes[node_index],
+                remote_user,
+                'sudo systemctl start kubelet kube-proxy')
 
 
 def main():
