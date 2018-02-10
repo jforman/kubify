@@ -976,12 +976,19 @@ class KubeBuild(object):
             '~/determine_node_podcidr.sh https://127.0.0.1:2379',
             return_output=True)
 
+        if self.args.dry_run:
+            logging.info('DRY RUN: would have attempted to set node_pod_cidr '
+                         'dict for %s type.', node_type)
+            return
         nodepod_pairs = output.split(',')
-        logging.info('node_pod pairs for %s: %s', node_type, nodepod_pairs)
 
         for cur_pair in nodepod_pairs:
             node_pair = cur_pair.split(':')
             self.node_pod_cidr[node_type][node_pair[0]] = node_pair[1]
+
+        logging.debug('node_pod pairs for %s: %s', node_type, nodepod_pairs)
+        logging.info('completed determining node:pod CIDRs.')
+
     def install_worker_binaries(self):
         """install kubernetes and networking binaries on worker nodes."""
         node_type = 'worker'
