@@ -896,9 +896,6 @@ class KubeBuild(object):
                 template_vars.update({
                     'POD_CIDR': self.node_pod_cidr['worker'][worker_ip_address]
                 })
-            template_vars = {
-                'POD_CIDR': self.node_pod_cidr['worker'][worker_ip_address]
-                }
             template_out_path = self.translate_path(
                 '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
                     'worker_hostname': worker_hostname})
