@@ -320,7 +320,6 @@ class KubeBuild(object):
         install_dir = self.config.get('general', 'install_dir')
         kube_bins = ['kube-apiserver', 'kube-controller-manager',
                      'kube-scheduler', 'kubectl']
-        prefix = self.config.get(node_type, 'prefix')
         remote_user = self.config.get(node_type, 'remote_user')
 
         # write systemd service templates
