@@ -1,0 +1,16 @@
+{
+    "CN": "{{ HOSTNAME }}",
+    "key": {
+        "algo": "ecdsa",
+        "size": 256
+    },
+    "names": [
+        {
+          "C": "US",
+          "L": "Boston",
+          "O": "system:masters",
+          "OU": "Kubernetes The Hard Way",
+          "ST": "Massachusetts"
+        }
+    ]
+}
