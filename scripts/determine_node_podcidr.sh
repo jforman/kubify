@@ -3,18 +3,15 @@
 # Script to use etcd to return a list of node IPs with pod subnets on each host.
 # Example output: Node1IP:Node1PodSubnetCidr,Node2IP:Node2PodSubnetCidr,...
 
-CA_DIR=/etc/ssl/certs/
-APISERVER_DIR=/etc/ssl/certs/
+CERT_DIR=/etc/ssl/certs/
 CA_FILE=ca.pem
-CERT_FILE=kubernetes.pem
-KEY_FILE=kubernetes-key.pem
+CERT_FILE="$(hostname)-etcd.pem"
+KEY_FILE="$(hostname)-etcd-key.pem"
 ETCD_ENDPOINT=$1
 ETCD_SUBNETS_DIR=/coreos.com/network/subnets
 
 run_etcd() {
-#    echo $( /usr/bin/etcdctl --ca-file $CA_DIR$CA_FILE --cert-file $APISERVER_DIR$CERT_FILE --key-file $APISERVER_DIR$KEY_FILE --endpoints $ETCD_ENDPOINT ${@:1} )
-    echo $( /usr/bin/etcdctl ${@:1} )
-
+    echo $( sudo /usr/bin/etcdctl --ca-file $CERT_DIR$CA_FILE --cert-file $CERT_DIR$CERT_FILE --key-file $CERT_DIR$KEY_FILE --endpoints $ETCD_ENDPOINT ${@:1} )
 }
 
 get_pod_subnet_paths() {
