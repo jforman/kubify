@@ -108,6 +108,7 @@ class KubeBuild(object):
         self.bootstrap_control_plane()
         self.bootstrap_control_plane_rbac()
         self.bootstrap_workers()
+        self.create_admin_kubeconfig()
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
                  ignore_errors=False):
@@ -1193,6 +1194,46 @@ class KubeBuild(object):
                 nodes[node_index],
                 remote_user,
                 'sudo systemctl start kubelet kube-proxy')
+
+    def create_admin_kubeconfig(self):
+        """create admin kubeconfig for remote access."""
+        logging.info("creating admin kubeconfig for remote access.")
+
+        self.run_command(
+            ("{BIN_DIR}/kubectl config set-cluster %(cluster_name)s "
+             "--certificate-authority={CA_DIR}/ca.pem "
+             "--embed-certs=true "
+             "--server=https://%(api_server_ip_address)s "
+             "--kubeconfig={ADMIN_DIR}/kubeconfig " % {
+                 'cluster_name': self.config.get('general', 'cluster_name'),
+                 'api_server_ip_address': self.config.get('general',
+                                                          'api_server_ip_address')
+             }
+        ))
+
+        self.run_command(
+            ("{BIN_DIR}/kubectl config set-credentials admin "
+             "--client-certificate={ADMIN_DIR}/admin.pem "
+             "--client-key={ADMIN_DIR}/admin-key.pem "
+             "--kubeconfig={ADMIN_DIR}/kubeconfig"))
+
+        self.run_command(
+            ("{BIN_DIR}/kubectl config set-context %(cluster_name)s "
+             "--cluster=%(cluster_name)s "
+             "--user=admin "
+             "--kubeconfig={ADMIN_DIR}/kubeconfig" % {
+                 'cluster_name': self.config.get('general', 'cluster_name')
+             }
+            ))
+
+        self.run_command(
+            ("{BIN_DIR}/kubectl config use-context %(cluster_name)s "
+             "--kubeconfig={ADMIN_DIR}/kubeconfig" % {
+                 'cluster_name': self.config.get('general', 'cluster_name')
+                 }
+             ))
+
+        logging.info("done creating admin kubeconfig for remote access.")
 
 
 def main():
