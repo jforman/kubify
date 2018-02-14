@@ -12,6 +12,7 @@ ExecStart={{ INSTALL_DIR }}/bin/kubelet \
   --cloud-provider= \
   --cluster-dns={{ CLUSTER_DNS }} \
   --cluster-domain=cluster.local \
+  --cni-conf-dir=/etc/rkt/net.d/ \
   --container-runtime=rkt \
   --image-pull-progress-deadline=2m \
   --kubeconfig=/var/lib/kubelet/kubeconfig \
