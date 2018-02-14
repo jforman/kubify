@@ -8,10 +8,11 @@ import jinja2
 
 
 def hostname_with_index(hostname, domain, host_index):
-    return '%(hostname)s%(host_index)d.%(domain)s' % ({
+    hostname = '%(hostname)s%(host_index)d.%(domain)s' % ({
         'hostname': hostname,
         'domain': domain,
         'host_index': host_index})
+    return hostname.lower()
 
 def get_ip_from_range(host_index, starting_ip, netmask):
     """retrieve IP from range
