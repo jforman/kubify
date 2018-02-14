@@ -882,75 +882,85 @@ class KubeBuild(object):
     def bootstrap_workers(self):
         """bootstrap kubernetes workers."""
         self.set_node_pod_cidr('worker')
-        self.install_worker_binaries()
-        self.configure_worker_cni_networking()
-        self.configure_worker_kubelet_kubeproxy()
+        node_type = 'worker'
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
 
-    def configure_worker_cni_networking(self):
-        """create cni configs and install on worker nodes."""
-        nodes = self.config.get('worker', 'ip_addresses').split(',')
-        for cur_index in range(0, self.get_node_count('worker')):
-            worker_hostname = helpers.hostname_with_index(
-                self.config.get('worker', 'prefix'),
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(
+                prefix,
                 self.get_node_domain(),
-                cur_index)
-            worker_ip_address = self.config.get(
-                'worker',
-                'ip_addresses').split(',')[cur_index]
-            logging.debug('self.node_pod_cidr: %s', self.node_pod_cidr)
-            template_vars = {}
-            if self.args.dry_run:
-                template_vars.update({
-                    'POD_CIDR': 'DRY_RUN_FILLER'
-                })
-            else:
-                template_vars.update({
-                    'POD_CIDR': self.node_pod_cidr['worker'][worker_ip_address]
-                })
-            template_out_path = self.translate_path(
-                '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
-                    'worker_hostname': worker_hostname})
+                node_index)
+            self.install_worker_binaries(hostname,
+                                         nodes[node_index],
+                                         remote_user)
+            self.configure_worker_cni_networking(hostname,
+                                                 nodes[node_index],
+                                                 remote_user)
+            self.configure_worker_kubelet_kubeproxy(hostname,
+                                                    nodes[node_index],
+                                                    remote_user)
+            self.restart_worker_binaries(hostname,
+                                         nodes[node_index],
+                                         remote_user)
 
-            rendered_template = helpers.render_template(
-                self.translate_path('{TEMPLATE_DIR}/cni/10-bridge.conf'),
-                template_vars
-            )
-            if self.args.dry_run:
-                logging.info('DRYRUN: would have written kube-controller-'
-                             'manager service to %s.', template_out_path)
-            else:
-                with open(template_out_path, 'w') as tp:
-                    tp.write(rendered_template)
+    def configure_worker_cni_networking(self, hostname, remote_ip, remote_user):
+        """create cni configs and install on worker node."""
+        logging.debug('self.node_pod_cidr: %s', self.node_pod_cidr)
+        template_vars = {}
+        if self.args.dry_run:
+            template_vars.update({
+                'POD_CIDR': 'DRY_RUN_FILLER'
+            })
+        else:
+            template_vars.update({
+                'POD_CIDR': self.node_pod_cidr['worker'][remote_ip]
+            })
+        template_out_path = self.translate_path(
+            '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
+                'worker_hostname': hostname})
 
-            self.scp_file(
-                '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
-                    'worker_hostname': worker_hostname,
-                },
-                self.config.get('worker', 'remote_user'),
-                nodes[cur_index],
-                '~'
-            )
+        rendered_template = helpers.render_template(
+            self.translate_path('{TEMPLATE_DIR}/cni/10-bridge.conf'),
+            template_vars
+        )
+        if self.args.dry_run:
+            logging.info('DRYRUN: would have written kube-controller-'
+                         'manager service to %s.', template_out_path)
+        else:
+            with open(template_out_path, 'w') as tp:
+                tp.write(rendered_template)
 
-            self.scp_file(
-                '{TEMPLATE_DIR}/cni/99-loopback.conf',
-                self.config.get('worker', 'remote_user'),
-                nodes[cur_index],
-                '~'
-            )
-            self.run_command_via_ssh(
-                nodes[cur_index],
-                self.config.get('worker', 'remote_user'),
-                ('sudo cp %(worker_hostname)s-cni-10-bridge.conf '
-                 '/etc/cni/net.d/10-bridge.conf') % {
-                    'worker_hostname': worker_hostname
-                }
-            )
-            self.run_command_via_ssh(
-                nodes[cur_index],
-                self.config.get('worker', 'remote_user'),
-                'sudo cp 99-loopback.conf /etc/cni/net.d/',
-            )
+        self.scp_file(
+            '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
+                'worker_hostname': hostname},
+            remote_user,
+            remote_ip,
+            '~')
 
+        self.scp_file(
+            '{TEMPLATE_DIR}/cni/99-loopback.conf',
+            remote_user,
+            remote_ip,
+            '~')
+
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'sudo mkdir -p /etc/rkt/net.d/')
+
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            ('sudo cp %(worker_hostname)s-cni-10-bridge.conf '
+             '/etc/rkt/net.d/10-bridge.conf') % {
+                 'worker_hostname': hostname})
+
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'sudo cp 99-loopback.conf /etc/rkt/net.d/')
 
     def set_node_pod_cidr(self, node_type):
         """store dict of nodeIP:podCIDR associations."""
@@ -993,73 +1003,67 @@ class KubeBuild(object):
         logging.debug('node_pod pairs for %s: %s', node_type, nodepod_pairs)
         logging.info('completed determining node:pod CIDRs.')
 
-    def install_worker_binaries(self):
-        """install kubernetes and networking binaries on worker nodes."""
-        node_type = 'worker'
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
-        remote_user = self.config.get(node_type, 'remote_user')
+    def install_worker_binaries(self, hostname, remote_ip, remote_user):
+        """install kubernetes and networking binaries on worker node."""
+        logging.info('bootstraping kubernetes worker node %s at %s.',
+                     hostname,
+                     remote_ip)
 
-        logging.info('bootstraping kubernetes %s nodes.', node_type)
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'wget -q --show-progress --https-only --timestamping \
+            https://github.com/containernetworking/plugins/releases/download/v0.6.0/cni-plugins-amd64-v0.6.0.tgz')
 
-        for node_index in range(0, self.get_node_count(node_type)):
-            self.run_command_via_ssh(
-                nodes[node_index],
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            '''sudo mkdir -p \
+            /etc/cni/net.d \
+            /opt/cni/bin \
+            /var/lib/kubelet \
+            /var/lib/kube-proxy \
+            /var/lib/kubernetes \
+            /var/run/kubernetes \
+            %(install_dir)s/bin''' % {'install_dir': self.config.get(
+                'general',
+                'install_dir')})
+
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'sudo tar -xvf cni-plugins-amd64-v0.6.0.tgz -C /opt/cni/bin/')
+
+        kube_bins = ['kubectl', 'kubelet', 'kube-proxy']
+        for cur_file in kube_bins:
+            self.scp_file(
+                '{BIN_DIR}/%s' % cur_file,
                 remote_user,
-                'wget -q --show-progress --https-only --timestamping \
-  https://github.com/containernetworking/plugins/releases/download/v0.6.0/cni-plugins-amd64-v0.6.0.tgz')
+                remote_ip,
+                '~')
 
             self.run_command_via_ssh(
-                nodes[node_index],
+                remote_ip,
                 remote_user,
-                '''sudo mkdir -p \
-                /etc/cni/net.d \
-                /opt/cni/bin \
-                /var/lib/kubelet \
-                /var/lib/kube-proxy \
-                /var/lib/kubernetes \
-                /var/run/kubernetes \
-                %(install_dir)s/bin''' % {'install_dir': self.config.get(
-                    'general',
-                    'install_dir')})
-
+                'sudo cp %(cur_file)s %(install_dir)s/bin/' % {
+                    'cur_file': cur_file,
+                    'install_dir': self.config.get('general', 'install_dir')
+                }
+            )
             self.run_command_via_ssh(
-                nodes[node_index],
+                remote_ip,
                 remote_user,
-                'sudo tar -xvf cni-plugins-amd64-v0.6.0.tgz -C /opt/cni/bin/')
+                'sudo chmod +x %(install_dir)s/bin/%(cur_file)s' % {
+                    'cur_file': cur_file,
+                    'install_dir': self.config.get('general', 'install_dir'),
+                }
+            )
 
-            kube_bins = ['kubectl', 'kubelet', 'kube-proxy']
-            for cur_file in kube_bins:
-                self.scp_file(
-                    '{BIN_DIR}/%s' % cur_file,
-                    remote_user,
-                    nodes[node_index],
-                    '~')
-                self.run_command_via_ssh(
-                    nodes[node_index],
-                    remote_user,
-                    'sudo cp %(cur_file)s %(install_dir)s/bin/' % {
-                        'cur_file': cur_file,
-                        'install_dir': self.config.get('general', 'install_dir')
-                    }
-                )
-                self.run_command_via_ssh(
-                    nodes[node_index],
-                    remote_user,
-                    'sudo chmod +x %(install_dir)s/bin/%(cur_file)s' % {
-                        'cur_file': cur_file,
-                        'install_dir': self.config.get('general', 'install_dir'),
-                    }
-                )
 
-    def configure_worker_kubelet_kubeproxy(self):
+    def configure_worker_kubelet_kubeproxy(self, hostname, remote_ip, remote_user):
         """create kubelet configuration for worker and install it on node."""
-        node_type = 'worker'
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
-        remote_user = self.config.get(node_type, 'remote_user')
-        prefix = self.config.get(node_type, 'prefix')
-
-        logging.debug('deploying kubelet and kube-proxy to %s nodes.',
-                      node_type)
+        logging.debug('deploying kubelet and kube-proxy to %s on %s.',
+                      hostname, remote_ip)
 
         template_vars = {
             'CLUSTER_CIDR': self.config.get('general', 'cluster_cidr'),
@@ -1077,123 +1081,92 @@ class KubeBuild(object):
             with open(template_path, 'w') as tp:
                 tp.write(kube_proxy_config)
 
-        for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(prefix,
-                                                   self.get_node_domain(),
-                                                   node_index)
-            logging.debug('configuring kubelet and kube-proxy on %s.',
-                          hostname)
 
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo mkdir -p /var/lib/kubelet/'
-            )
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'sudo mkdir -p /var/lib/kubelet/')
 
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo cp %(hostname)s-key.pem %(hostname)s.pem /var/lib/kubelet/' % {
-                    'hostname': hostname
-                }
-            )
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'sudo cp %(hostname)s-key.pem %(hostname)s.pem /var/lib/kubelet/' % {
+                'hostname': hostname
+            }
+        )
 
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo cp %(hostname)s.kubeconfig /var/lib/kubelet/kubeconfig' % {
-                    'hostname': hostname
-                }
-            )
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'sudo cp %(hostname)s.kubeconfig /var/lib/kubelet/kubeconfig' % {
+                'hostname': hostname
+            }
+        )
 
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo cp ca.pem /var/lib/kubernetes/' % {
-                    'hostname': hostname
-                }
-            )
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'sudo cp ca.pem /var/lib/kubernetes/')
 
-            template_vars = {
-                'CLUSTER_DNS': self.config.get('general', 'cluster_dns'),
-                'HOSTNAME': hostname,
-                'INSTALL_DIR': self.config.get('general', 'install_dir')
-                }
-            if self.args.dry_run:
-                template_vars.update({
-                    'POD_CIDR': 'DRY_RUN_FILLER'
-                })
-            else:
-                template_vars.update({
-                    'POD_CIDR': self.node_pod_cidr['worker'][nodes[node_index]]
-                })
+        template_vars = {
+            'CLUSTER_DNS': self.config.get('general',
+                                           'cluster_dns_ip_address'),
+            'HOSTNAME': hostname,
+            'INSTALL_DIR': self.config.get('general', 'install_dir')
+        }
 
-            template_out_path = self.translate_path(
-                '{WORKER_DIR}/%(worker_hostname)s.kubelet.service' % {
-                    'worker_hostname': hostname})
+        if self.args.dry_run:
+            template_vars.update({
+                'POD_CIDR': 'DRY_RUN_FILLER'
+            })
+        else:
+            template_vars.update({
+                'POD_CIDR': self.node_pod_cidr['worker'][remote_ip]
+            })
 
-            rendered_template = helpers.render_template(
-                self.translate_path('{TEMPLATE_DIR}/kubelet.service'),
-                template_vars
-            )
-            if self.args.dry_run:
-                logging.info('DRYRUN: would have written kube-controller-'
-                             'manager service to %s.', template_out_path)
-            else:
-                with open(template_out_path, 'w') as tp:
-                    tp.write(rendered_template)
+        template_out_path = self.translate_path(
+            '{WORKER_DIR}/%(worker_hostname)s.kubelet.service' % {
+                'worker_hostname': hostname})
 
-            self.scp_file(
-                '{WORKER_DIR}/%(worker_hostname)s.kubelet.service' % {
-                    'worker_hostname': hostname},
-                self.config.get('worker', 'remote_user'),
-                nodes[node_index],
-                '~/')
+        rendered_template = helpers.render_template(
+            self.translate_path('{TEMPLATE_DIR}/kubelet.service'),
+            template_vars
+        )
+        if self.args.dry_run:
+            logging.info('DRYRUN: would have written kube-controller-'
+                         'manager service to %s.', template_out_path)
+        else:
+            with open(template_out_path, 'w') as tp:
+                tp.write(rendered_template)
 
-            self.scp_file(
-                '{WORKER_DIR}/kube-proxy.service',
-                self.config.get('worker', 'remote_user'),
-                nodes[node_index],
-                '~/')
+        self.scp_file(
+            '{WORKER_DIR}/%(worker_hostname)s.kubelet.service' % {
+                'worker_hostname': hostname},
+            remote_user,
+            remote_ip,
+            '~/')
 
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo cp kube-proxy.service /etc/systemd/system/'
-                )
+        self.scp_file(
+            '{WORKER_DIR}/kube-proxy.service',
+            remote_user,
+            remote_ip,
+            '~/')
 
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo cp %(worker_hostname)s.kubelet.service /etc/systemd/system/kubelet.service' % {
-                    'worker_hostname': hostname})
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'sudo cp kube-proxy.service /etc/systemd/system/')
 
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo cp kube-proxy.kubeconfig /var/lib/kube-proxy/kubeconfig'
-            )
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'sudo cp %(worker_hostname)s.kubelet.service /etc/systemd/system/kubelet.service' % {
+                'worker_hostname': hostname})
 
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo systemctl stop kubelet kube-proxy',
-                ignore_errors=True)
-
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo systemctl daemon-reload')
-
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo systemctl enable kubelet kube-proxy')
-
-            self.run_command_via_ssh(
-                nodes[node_index],
-                remote_user,
-                'sudo systemctl start kubelet kube-proxy')
+        self.run_command_via_ssh(
+            remote_ip,
+            remote_user,
+            'sudo cp kube-proxy.kubeconfig /var/lib/kube-proxy/kubeconfig')
 
     def create_admin_kubeconfig(self):
         """create admin kubeconfig for remote access."""
