@@ -220,8 +220,8 @@ class KubeBuild(object):
                     )
                 logging.debug("command output: %s", output)
             except subprocess.CalledProcessError as err:
-                logging.fatal("Error in running %s. Error: %s", command_list,
-                              err)
+                logging.fatal("Error in running %s. Output: %s",
+                              command_list, err.output)
                 if ignore_errors:
                     logging.info('ERROR IGNORED, continuing on.')
                 else:
