@@ -146,7 +146,7 @@ class KubeBuild(object):
             ignore_errors=ignore_errors,
         )
 
-    def run_command_via_ssh(self, remote_host, remote_user, command,
+    def run_command_via_ssh(self, remote_user, remote_host, command,
                             ignore_errors=False, return_output=False):
         """ssh to remote host and run specified command."""
         ssh_args = ('-o UserKnownHostsFile=/dev/null '
@@ -376,27 +376,27 @@ class KubeBuild(object):
                 cur_index)
             logging.info('bootstrapping %s for kubernetes.', hostname)
             self.run_command_via_ssh(
-                nodes[cur_index],
                 remote_user,
+                nodes[cur_index],
                 'sudo mkdir -p %(install_dir)s/bin/' % {
                     'install_dir': install_dir}
             )
 
             self.run_command_via_ssh(
-                nodes[cur_index],
                 remote_user,
+                nodes[cur_index],
                 'sudo systemctl stop kube-scheduler.service',
                 ignore_errors=True)
 
             self.run_command_via_ssh(
-                nodes[cur_index],
                 remote_user,
+                nodes[cur_index],
                 'sudo systemctl stop kube-controller-manager.service',
                 ignore_errors=True)
 
             self.run_command_via_ssh(
-                nodes[cur_index],
                 remote_user,
+                nodes[cur_index],
                 'sudo systemctl stop kube-apiserver.service',
                 ignore_errors=True)
 
@@ -407,16 +407,16 @@ class KubeBuild(object):
                     nodes[cur_index],
                     '~')
                 self.run_command_via_ssh(
-                    nodes[cur_index],
                     remote_user,
+                    nodes[cur_index],
                     'sudo cp %(cur_file)s %(install_dir)s/bin/' % {
                         'cur_file': cur_file,
                         'install_dir': install_dir
                     }
                 )
                 self.run_command_via_ssh(
-                    nodes[cur_index],
                     remote_user,
+                    nodes[cur_index],
                     'sudo chmod +x %(install_dir)s/bin/%(cur_file)s' % {
                         'cur_file': cur_file,
                         'install_dir': install_dir,
@@ -452,32 +452,32 @@ class KubeBuild(object):
                 )
 
             self.run_command_via_ssh(
-                nodes[cur_index],
                 remote_user,
-                ('sudo mv kube-apiserver.service kube-scheduler.service '
+                nodes[cur_index],
+                ('sudo cp kube-apiserver.service kube-scheduler.service '
                  'kube-controller-manager.service /etc/systemd/system/'))
 
             self.run_command_via_ssh(
-                nodes[cur_index],
                 remote_user,
+                nodes[cur_index],
                 ('sudo cp kubernetes.pem kubernetes-key.pem ca.pem ca-key.pem '
                  '/etc/ssl/certs/')
             )
 
             self.run_command_via_ssh(
-                nodes[cur_index],
                 remote_user,
+                nodes[cur_index],
                 'sudo systemctl daemon-reload')
 
             self.run_command_via_ssh(
-                nodes[cur_index],
                 remote_user,
+                nodes[cur_index],
                 ('sudo systemctl enable kube-apiserver kube-controller-manager '
                  'kube-scheduler'))
 
             self.run_command_via_ssh(
-                nodes[cur_index],
                 remote_user,
+                nodes[cur_index],
                 ('sudo systemctl start kube-apiserver kube-controller-manager '
                  'kube-scheduler'))
 
@@ -544,8 +544,8 @@ class KubeBuild(object):
                 '~/')
 
             self.run_command_via_ssh(
-                nodes[node_index],
                 remote_user,
+                nodes[node_index],
                 'sudo cp encryption-config.yaml /etc/ssl/certs/'
             )
 
@@ -778,22 +778,22 @@ class KubeBuild(object):
             )
 
             self.run_command_via_ssh(
-                nodes[node_index],
                 remote_user,
+                nodes[node_index],
                 'sudo mkdir -p %s' % destination_dir,
             )
 
             self.run_command_via_ssh(
-                nodes[node_index],
                 remote_user,
+                nodes[node_index],
                 ('sudo cp ca.pem %(hostname)s-etcd.pem %(hostname)s-etcd-key.pem '
                 '%(destination_dir)s' % {
                     'hostname': hostname,
                     'destination_dir': destination_dir }))
 
             self.run_command_via_ssh(
-                nodes[node_index],
                 remote_user,
+                nodes[node_index],
                 ('sudo chown etcd:etcd %(destination_dir)s/ca.pem '
                  '%(destination_dir)s/%(hostname)s-etcd.pem '
                  '%(destination_dir)s/%(hostname)s-etcd-key.pem ' % {
@@ -801,20 +801,20 @@ class KubeBuild(object):
                      'destination_dir': destination_dir }))
 
             self.run_command_via_ssh(
-                nodes[node_index],
                 remote_user,
+                nodes[node_index],
                 'sudo systemctl stop etcd-member.service',
                 ignore_errors=True)
 
             self.run_command_via_ssh(
-                nodes[node_index],
                 remote_user,
+                nodes[node_index],
                 'sudo systemctl start --no-block etcd-member.service'
             )
 
             self.run_command_via_ssh(
-                nodes[node_index],
                 remote_user,
+                nodes[node_index],
                 'sudo systemctl restart --no-block flanneld.service'
             )
 
@@ -834,8 +834,8 @@ class KubeBuild(object):
                 '~/')
 
             self.run_command_via_ssh(
-                remote_host,
                 self.config.get('controller', 'remote_user'),
+                remote_host,
                 '%(install_dir)s/bin/kubectl apply -f %(config)s' % {
                     'install_dir': self.config.get('general',
                                                    'install_dir'),
@@ -900,20 +900,20 @@ class KubeBuild(object):
             '~')
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'sudo mkdir -p /etc/rkt/net.d/')
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             ('sudo cp %(worker_hostname)s-cni-10-bridge.conf '
              '/etc/rkt/net.d/10-bridge.conf') % {
                  'worker_hostname': hostname})
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'sudo cp 99-loopback.conf /etc/rkt/net.d/')
 
     def set_node_pod_cidr(self, node_type):
@@ -934,13 +934,13 @@ class KubeBuild(object):
         )
 
         self.run_command_via_ssh(
-            remote_host,
             self.config.get(node_type, 'remote_user'),
+            remote_host,
             'chmod +x ~/determine_node_podcidr.sh')
 
         output = self.run_command_via_ssh(
-            remote_host,
             self.config.get(node_type, 'remote_user'),
+            remote_host,
             '~/determine_node_podcidr.sh https://127.0.0.1:2379',
             return_output=True)
 
@@ -964,14 +964,14 @@ class KubeBuild(object):
                      remote_ip)
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'wget -q --show-progress --https-only --timestamping \
             https://github.com/containernetworking/plugins/releases/download/v0.6.0/cni-plugins-amd64-v0.6.0.tgz')
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             '''sudo mkdir -p \
             /etc/cni/net.d \
             /opt/cni/bin \
@@ -984,8 +984,8 @@ class KubeBuild(object):
                 'install_dir')})
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'sudo tar -xvf cni-plugins-amd64-v0.6.0.tgz -C /opt/cni/bin/')
 
         kube_bins = ['kubectl', 'kubelet', 'kube-proxy']
@@ -997,16 +997,16 @@ class KubeBuild(object):
                 '~')
 
             self.run_command_via_ssh(
-                remote_ip,
                 remote_user,
+                remote_ip,
                 'sudo cp %(cur_file)s %(install_dir)s/bin/' % {
                     'cur_file': cur_file,
                     'install_dir': self.config.get('general', 'install_dir')
                 }
             )
             self.run_command_via_ssh(
-                remote_ip,
                 remote_user,
+                remote_ip,
                 'sudo chmod +x %(install_dir)s/bin/%(cur_file)s' % {
                     'cur_file': cur_file,
                     'install_dir': self.config.get('general', 'install_dir'),
@@ -1025,29 +1025,29 @@ class KubeBuild(object):
             {'CLUSTER_CIDR': self.config.get('general', 'cluster_cidr')})
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'sudo mkdir -p /var/lib/kubelet/')
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'sudo cp %(hostname)s-key.pem %(hostname)s.pem /var/lib/kubelet/' % {
                 'hostname': hostname
             }
         )
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'sudo cp %(hostname)s.kubeconfig /var/lib/kubelet/kubeconfig' % {
                 'hostname': hostname
             }
         )
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'sudo cp ca.pem /var/lib/kubernetes/')
 
         template_vars = {
@@ -1086,19 +1086,19 @@ class KubeBuild(object):
             '~/')
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'sudo cp kube-proxy.service /etc/systemd/system/')
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'sudo cp %(worker_hostname)s.kubelet.service /etc/systemd/system/kubelet.service' % {
                 'worker_hostname': hostname})
 
         self.run_command_via_ssh(
-            remote_ip,
             remote_user,
+            remote_ip,
             'sudo cp kube-proxy.kubeconfig /var/lib/kube-proxy/kubeconfig')
 
     def create_admin_kubeconfig(self):
