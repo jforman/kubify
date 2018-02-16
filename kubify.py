@@ -1185,9 +1185,13 @@ def main():
                          'with --config')
         sys.exit(1)
 
+    start_time = time.time()
     k8s = KubeBuild(args)
     k8s.build()
-    logging.info('completed running kubernetes build.')
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    logging.info('completed running kubernetes build. Elapsed Time %s.',
+                 time.strftime("%Hh:%Mm:%Ss", time.gmtime(elapsed_time)))
 
 
 if __name__ == '__main__':
