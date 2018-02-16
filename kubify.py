@@ -569,29 +569,20 @@ class KubeBuild(object):
 
     def create_etcd_certs(self, node_type):
         """create certificates for etcd peers."""
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+
         for cur_index in range(0, self.get_node_count(node_type)):
             logging.info('creating etcd certs for node type %s.', node_type)
             hostname = helpers.hostname_with_index(
                 self.config.get(node_type, 'prefix'),
                 self.get_node_domain(),
                 cur_index)
+            template_vars = {'HOSTNAME': hostname}
 
-            template_vars = {
-                'HOSTNAME': hostname,
-            }
-            etcd_json = helpers.render_template(
-                self.translate_path('{TEMPLATE_DIR}/etcd-csr.json'),
+            self.write_template(
+                '{TEMPLATE_DIR}/etcd-csr.json',
+                '{ETCD_DIR}/%s_etcd-csr.json' % hostname,
                 template_vars)
-
-            template_path = self.translate_path(
-                '{ETCD_DIR}/%s_etcd-csr.json' % hostname)
-
-            if self.args.dry_run:
-                logging.info('DRYRUN: would have written etcd csr json '
-                             'template to %s.', template_path)
-            else:
-                with open(template_path, 'w') as tp:
-                    tp.write(etcd_json)
 
             logging.info('creating etcd certificate for host %s', hostname)
             self.run_command(
@@ -601,9 +592,8 @@ class KubeBuild(object):
                      "-profile=kubernetes "
                      "-hostname=%(hostname_arg)s,127.0.0.1 "
                      "%(template_path)s" % {
-                         'hostname_arg': self.config.get(node_type,
-                                                         'ip_addresses'),
-                         'template_path': template_path,}),
+                         'template_path': '{ETCD_DIR}/%s_etcd-csr.json' % hostname,
+                         'hostname_arg': self.config.get(node_type, 'ip_addresses')}),
                 write_output='{ETCD_DIR}/cfssl_gencert_etcd-%s.output' % hostname)
 
             self.run_command(
