@@ -238,7 +238,8 @@ class KubeBuild(object):
                     command_list,
                     stdin=cmd_stdin,
                     )
-                logging.debug("command output: %s", output)
+                if output:
+                    logging.debug("command output: %s", output)
             except subprocess.CalledProcessError as err:
                 logging.fatal("Error in running %s. Output: %s",
                               command_list, err.output)
