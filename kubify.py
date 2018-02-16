@@ -85,6 +85,26 @@ class KubeBuild(object):
         return path
 
 
+    def write_template(self, input_template, output_path, template_vars):
+        """write a jinja2 template, with support for dry run and logging."""
+
+        input_template_path = self.translate_path(input_template)
+        rendered_output_path = self.translate_path(output_path)
+
+        output = helpers.render_template(
+            input_template_path,
+            template_vars)
+
+        if self.args.dry_run:
+            logging.info('DRYRUN: would have written template '
+                         '%(input_template)s to %(output_path)s.' % {
+                             'input_template': input_template_path,
+                             'output_path': rendered_output_path })
+        else:
+            with open(rendered_output_path, 'w') as output_file:
+                output_file.write(output)
+
+
     def build(self):
         """main build sequencer function."""
         self.create_output_dirs()
@@ -323,47 +343,29 @@ class KubeBuild(object):
                      'kube-scheduler', 'kubectl']
         remote_user = self.config.get(node_type, 'remote_user')
 
-        # write systemd service templates
-        template_vars = {'CERTS_DIR': self.config.get('general',
-                                                      'ssl_certs_dir'),
-                         'CLUSTER_NAME': self.config.get(
-                             'general',
-                             'cluster_name'),
-                         'CLUSTER_CIDR': self.config.get('general',
-                                                         'cluster_cidr'),
-                         'ETCD_SERVERS': etcd_servers,
-                         'INSTALL_DIR': self.config.get('general',
-                                                        'install_dir'),
-                         'SERVICE_CIDR': self.config.get('general',
-                                                         'service_cidr')}
+        template_vars = {
+            'CERTS_DIR': self.config.get('general',
+                                         'ssl_certs_dir'),
+            'CLUSTER_NAME': self.config.get('general',
+                                            'cluster_name'),
+            'CLUSTER_CIDR': self.config.get('general',
+                                            'cluster_cidr'),
+            'ETCD_SERVERS': etcd_servers,
+            'INSTALL_DIR': self.config.get('general',
+                                           'install_dir'),
+            'SERVICE_CIDR': self.config.get('general',
+                                            'service_cidr')}
 
-        # write kube-controller-manager
-        rendered_template = helpers.render_template(
-            self.translate_path(
-                '{TEMPLATE_DIR}/kube-controller-manager.service'), template_vars
-            )
-        template_out_path = self.translate_path(
+        self.write_template(
+            '{TEMPLATE_DIR}/kube-controller-manager.service',
             '{API_SERVER_DIR}/kube-controller-manager.service',
-            )
-        if self.args.dry_run:
-            logging.info('DRYRUN: would have written kube-controller-manager.'
-                         'service to %s.', template_out_path)
-        else:
-            with open(template_out_path, 'w') as tp:
-                tp.write(rendered_template)
+            template_vars)
 
         # write kube-scheduler
-        rendered_template = helpers.render_template(self.translate_path(
-            '{TEMPLATE_DIR}/kube-scheduler.service'), template_vars)
-        template_out_path = self.translate_path(
+        self.write_template(
+            '{TEMPLATE_DIR}/kube-scheduler.service',
             '{API_SERVER_DIR}/kube-scheduler.service',
-            )
-        if self.args.dry_run:
-            logging.info('DRYRUN: would have written kube-scheduler.service '
-                         'to %s.', template_out_path)
-        else:
-            with open(template_out_path, 'w') as tp:
-                tp.write(rendered_template)
+            template_vars)
 
         logging.info('bootstraping kubernetes on %s nodes.', node_type)
 
@@ -420,22 +422,13 @@ class KubeBuild(object):
                         'install_dir': install_dir,
                     }
                 )
-            # write systemd service templates
+
             template_vars.update({'IP_ADDRESS': nodes[cur_index]})
 
-            rendered_template = helpers.render_template(
-                self.translate_path('{TEMPLATE_DIR}/kube-apiserver.service'),
-                template_vars
-            )
-            template_path = self.translate_path(
+            self.write_template(
+                '{TEMPLATE_DIR}/kube-apiserver.service',
                 '{API_SERVER_DIR}/%s-kube-apiserver.service' % hostname,
-            )
-            if self.args.dry_run:
-                logging.info('DRYRUN: would have written worker csr json '
-                             'template to %s.', template_path)
-            else:
-                with open(template_path, 'w') as tp:
-                    tp.write(rendered_template)
+                template_vars)
 
             self.scp_file(
                 template_path,
@@ -521,22 +514,11 @@ class KubeBuild(object):
         """create kubernetes encryptionconfig file."""
         logging.info('beginning to create Kubernetes encryptionconfig file.')
 
-        template_vars = {
-            'key': base64.b64encode(os.urandom(32)),
-            }
-        encryption_config = helpers.render_template(
-            self.translate_path('{TEMPLATE_DIR}/encryption-config.yaml'),
-            template_vars)
-
-        encryption_config_path = self.translate_path(
-            '{ENCRYPTION_DIR}/encryption-config.yaml')
-
-        if self.args.dry_run:
-            logging.info('DRYRUN: would have written encryption config to '
-                         '%s.', encryption_config_path)
-        else:
-            with open(encryption_config_path, 'w') as ecp:
-                ecp.write(encryption_config)
+        self.write_template(
+            '{TEMPLATE_DIR}/encryption-config.yaml',
+            '{ENCRYPTION_DIR}/encryption-config.yaml',
+            {'key': base64.b64encode(os.urandom(32))}
+        )
 
         logging.info('finished creating Kubernetes encryptionconfig file.')
 
@@ -616,22 +598,12 @@ class KubeBuild(object):
             logging.debug('Hostname: %s, IP Address: %s.',
                           worker_hostname, ip_address)
 
-            template_vars = {
-                'instance': worker_hostname,
-            }
-            worker_json = helpers.render_template(
-                self.translate_path('{TEMPLATE_DIR}/worker-csr.json'),
-                template_vars)
+                          hostname, ip_address)
 
-            template_path = self.translate_path(
-                '{WORKER_DIR}/%s_worker-csr.json' % worker_hostname)
-
-            if self.args.dry_run:
-                logging.info('DRYRUN: would have written worker csr json '
-                             'template to %s.', template_path)
-            else:
-                with open(template_path, 'w') as tp:
-                    tp.write(worker_json)
+            self.write_template(
+                '{TEMPLATE_DIR}/worker-csr.json',
+                '{WORKER_DIR}/%s_worker-csr.json' % hostname,
+                {'HOSTNAME': hostname})
 
             logging.info('creating worker certificate for host %s',
                          worker_hostname)
@@ -907,20 +879,12 @@ class KubeBuild(object):
             template_vars.update({
                 'POD_CIDR': self.node_pod_cidr['worker'][remote_ip]
             })
-        template_out_path = self.translate_path(
-            '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
-                'worker_hostname': hostname})
 
-        rendered_template = helpers.render_template(
-            self.translate_path('{TEMPLATE_DIR}/cni/10-bridge.conf'),
-            template_vars
-        )
-        if self.args.dry_run:
-            logging.info('DRYRUN: would have written kube-controller-'
-                         'manager service to %s.', template_out_path)
-        else:
-            with open(template_out_path, 'w') as tp:
-                tp.write(rendered_template)
+        self.write_template(
+            '{TEMPLATE_DIR}/cni/10-bridge.conf',
+            '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
+                'worker_hostname': hostname},
+            template_vars)
 
         self.scp_file(
             '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
@@ -1055,22 +1019,10 @@ class KubeBuild(object):
         logging.debug('deploying kubelet and kube-proxy to %s on %s.',
                       hostname, remote_ip)
 
-        template_vars = {
-            'CLUSTER_CIDR': self.config.get('general', 'cluster_cidr'),
-        }
-        kube_proxy_config = helpers.render_template(
-            self.translate_path('{TEMPLATE_DIR}/kube-proxy.service'),
-            template_vars)
-
-        template_path = self.translate_path(
-            '{WORKER_DIR}/kube-proxy.service')
-        if self.args.dry_run:
-            logging.info('DRYRUN: would have kube-proxy.service '
-                         'template to %s.', template_path)
-        else:
-            with open(template_path, 'w') as tp:
-                tp.write(kube_proxy_config)
-
+        self.write_template(
+            '{TEMPLATE_DIR}/kube-proxy.service',
+            '{WORKER_DIR}/kube-proxy.service',
+            {'CLUSTER_CIDR': self.config.get('general', 'cluster_cidr')})
 
         self.run_command_via_ssh(
             remote_ip,
@@ -1114,20 +1066,11 @@ class KubeBuild(object):
                 'POD_CIDR': self.node_pod_cidr['worker'][remote_ip]
             })
 
-        template_out_path = self.translate_path(
+        self.write_template(
+            '{TEMPLATE_DIR}/kubelet.service',
             '{WORKER_DIR}/%(worker_hostname)s.kubelet.service' % {
-                'worker_hostname': hostname})
-
-        rendered_template = helpers.render_template(
-            self.translate_path('{TEMPLATE_DIR}/kubelet.service'),
-            template_vars
-        )
-        if self.args.dry_run:
-            logging.info('DRYRUN: would have written kube-controller-'
-                         'manager service to %s.', template_out_path)
-        else:
-            with open(template_out_path, 'w') as tp:
-                tp.write(rendered_template)
+                'worker_hostname': hostname},
+            template_vars)
 
         self.scp_file(
             '{WORKER_DIR}/%(worker_hostname)s.kubelet.service' % {
