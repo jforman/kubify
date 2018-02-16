@@ -431,21 +431,21 @@ class KubeBuild(object):
                 template_vars)
 
             self.scp_file(
-                template_path,
+                '{API_SERVER_DIR}/%s-kube-apiserver.service' % hostname,
                 remote_user,
                 nodes[cur_index],
                 '~/kube-apiserver.service'
                 )
 
             self.scp_file(
-                self.translate_path('{API_SERVER_DIR}/kube-controller-manager.service'),
+                '{API_SERVER_DIR}/kube-controller-manager.service',
                 remote_user,
                 nodes[cur_index],
                 '~/',
                 )
 
             self.scp_file(
-                self.translate_path('{API_SERVER_DIR}/kube-scheduler.service'),
+                '{API_SERVER_DIR}/kube-scheduler.service',
                 remote_user,
                 nodes[cur_index],
                 '~/',
