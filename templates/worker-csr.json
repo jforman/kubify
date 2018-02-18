@@ -1,5 +1,5 @@
 {
-  "CN": "system:node:{{ instance -}}",
+  "CN": "system:node:{{ HOSTNAME }}",
   "key": {
     "algo": "rsa",
     "size": 2048
