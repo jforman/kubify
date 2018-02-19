@@ -60,6 +60,7 @@ class KubeBuild(object):
 
         # now we can update the dict path based upon the base ones above
         path_dict.update({
+            '{ADDON_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'addon'),
             '{ADMIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'admin'),
             '{API_SERVER_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
                                              'api_server'),
@@ -129,6 +130,7 @@ class KubeBuild(object):
         self.bootstrap_control_plane_rbac()
         self.bootstrap_workers()
         self.create_admin_kubeconfig()
+        self.create_and_deploy_kube_dns()
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
                  ignore_errors=False):
@@ -266,8 +268,8 @@ class KubeBuild(object):
 
     def create_output_dirs(self):
         """create the directory structure for storing create files."""
-        subdirs = ['admin', 'api_server', 'bin', 'ca', 'encryption', 'etcd',
-                   'proxy', 'tmp', 'workers']
+        subdirs = ['addon', 'admin', 'api_server', 'bin', 'ca', 'encryption',
+                   'etcd', 'proxy', 'tmp', 'workers']
 
         if all([not self.args.clear_output_dir,
                 os.path.exists(self.args.output_dir),
@@ -1140,6 +1142,24 @@ class KubeBuild(object):
 
         logging.info("done creating admin kubeconfig for remote access.")
 
+    def create_and_deploy_kube_dns(self):
+        """create kube-dns add-on yaml and deploy it to cluster."""
+
+        logging.info('generating and applying kube-dns service template')
+
+        self.write_template(
+            '{TEMPLATE_DIR}/kube-dns.yaml',
+            '{ADDON_DIR}/kube-dns.yaml',
+            {'CLUSTER_DNS_IP_ADDRESS': self.config.get(
+                'general',
+                'cluster_dns_ip_address' )}
+        )
+
+        self.run_command(
+            ('{BIN_DIR}/kubectl create -f {ADDON_DIR}/kube-dns.yaml '
+             '--kubeconfig={ADMIN_DIR}/kubeconfig '))
+
+        logging.info('finished applying kube-dns service template.')
 
 def main():
     """main for Kubify script."""
