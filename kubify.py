@@ -530,7 +530,7 @@ class KubeBuild(object):
         remote_user = self.config.get(node_type, 'remote_user')
         prefix = self.config.get(node_type, 'prefix')
 
-        logging.debug('deploying encryptionconfig to controllers')
+        logging.info('deploying encryptionconfig to controllers')
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(prefix,
                                                    self.get_node_domain(),
@@ -769,7 +769,7 @@ class KubeBuild(object):
                 '{ETCD_DIR}/%(hostname)s-etcd-key.pem' % {
                     'hostname': hostname})
 
-            logging.debug('bootstraping etcd on %s.', hostname)
+            logging.info('bootstraping etcd on %s.', hostname)
 
             self.scp_file(
                 cert_files,
@@ -870,7 +870,6 @@ class KubeBuild(object):
 
     def configure_worker_cni_networking(self, hostname, remote_ip, remote_user):
         """create cni configs and install on worker node."""
-        logging.debug('self.node_pod_cidr: %s', self.node_pod_cidr)
         template_vars = {}
         if self.args.dry_run:
             template_vars.update({
@@ -955,7 +954,6 @@ class KubeBuild(object):
             node_pair = cur_pair.split(':')
             self.node_pod_cidr[node_type][node_pair[0]] = node_pair[1]
 
-        logging.debug('node_pod pairs for %s: %s', node_type, nodepod_pairs)
         logging.info('completed determining node:pod CIDRs.')
 
     def install_worker_binaries(self, hostname, remote_ip, remote_user):
@@ -1017,7 +1015,7 @@ class KubeBuild(object):
 
     def configure_worker_kubelet_kubeproxy(self, hostname, remote_ip, remote_user):
         """create kubelet configuration for worker and install it on node."""
-        logging.debug('deploying kubelet and kube-proxy to %s on %s.',
+        logging.info('deploying kubelet and kube-proxy to %s on %s.',
                       hostname, remote_ip)
 
         self.write_template(
