@@ -637,7 +637,7 @@ class KubeBuild(object):
                 '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
                 '--certificate-authority={CA_DIR}/ca.pem '
                 '--embed-certs=true '
-                '--server=https://%(api_server)s:6443 '
+                '--server=https://%(api_server)s:443 '
                 '--kubeconfig={WORKER_DIR}/%(worker)s.kubeconfig' % {
                     'cluster_name': self.config.get('general', 'cluster_name'),
                     'api_server': self.config.get(
@@ -674,7 +674,7 @@ class KubeBuild(object):
             '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
             '--certificate-authority={CA_DIR}/ca.pem '
             '--embed-certs=true '
-            '--server=https://%(api_server)s:6443 '
+            '--server=https://%(api_server)s:443 '
             '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig' % {
                 'api_server': self.config.get('general',
                                               'api_server_ip_address'),
