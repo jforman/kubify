@@ -853,6 +853,10 @@ class KubeBuild(object):
                 prefix,
                 self.get_node_domain(),
                 node_index)
+            self.control_worker_binaries(hostname,
+                                         nodes[node_index],
+                                         remote_user,
+                                         'stop')
             self.install_worker_binaries(hostname,
                                          nodes[node_index],
                                          remote_user)
@@ -862,9 +866,10 @@ class KubeBuild(object):
             self.configure_worker_kubelet_kubeproxy(hostname,
                                                     nodes[node_index],
                                                     remote_user)
-            self.restart_worker_binaries(hostname,
+            self.control_worker_binaries(hostname,
                                          nodes[node_index],
-                                         remote_user)
+                                         remote_user,
+                                         'start')
 
     def configure_worker_cni_networking(self, hostname, remote_ip, remote_user):
         """create cni configs and install on worker node."""
@@ -1156,6 +1161,43 @@ class KubeBuild(object):
              '--kubeconfig={ADMIN_DIR}/kubeconfig '))
 
         logging.info('finished applying kube-dns service template.')
+
+    def control_worker_binaries(self, hostname, remote_ip, remote_user,
+                                 action=None):
+        """control kubernetes binaries on a host."""
+
+
+        if action == "stop":
+            logging.info('stopping worker binaries on %s.', hostname)
+            # NOTE: ignore_errors on stop here because there might be a situation
+            # where this is the initial rollout, and there's nothing to stop.
+            # still seems like a hack. would it make sense to check for binaries
+            # existance first before stopping?
+
+            self.run_command_via_ssh(
+                remote_user,
+                remote_ip,
+                'sudo systemctl stop kubelet kube-proxy rktlet',
+                ignore_errors=True)
+
+        if action == "start":
+            logging.info('starting worker binaries on %s.', hostname)
+
+            self.run_command_via_ssh(
+                remote_user,
+                remote_ip,
+                'sudo systemctl daemon-reload')
+
+            self.run_command_via_ssh(
+                remote_user,
+                remote_ip,
+                'sudo systemctl enable kubelet kube-proxy rktlet')
+
+            self.run_command_via_ssh(
+                remote_user,
+                remote_ip,
+                'sudo systemctl start kubelet kube-proxy rktlet')
+
 
 def main():
     """main for Kubify script."""
