@@ -4,6 +4,7 @@ Documentation=https://github.com/kubernetes/kubernetes
 
 [Service]
 ExecStart={{ INSTALL_DIR }}/bin/kube-apiserver \
+  --admission-control=NodeRestriction,ServiceAccount \
   --advertise-address={{ IP_ADDRESS }} \
   --allow-privileged=true \
   --apiserver-count=3 \
