@@ -592,15 +592,13 @@ class KubeBuild(object):
         for cur_index in range(0, self.get_node_count('worker')):
             logging.info('creating csr json template for worker %d.',
                          cur_index)
-            worker_hostname = helpers.hostname_with_index(
+            hostname = helpers.hostname_with_index(
                 self.config.get('worker', 'prefix'),
                 self.get_node_domain(),
                 cur_index)
             ip_address = self.get_node_ip_addresses('worker').split(',')[cur_index]
 
             logging.debug('Hostname: %s, IP Address: %s.',
-                          worker_hostname, ip_address)
-
                           hostname, ip_address)
 
             self.write_template(
@@ -608,25 +606,23 @@ class KubeBuild(object):
                 '{WORKER_DIR}/%s_worker-csr.json' % hostname,
                 {'HOSTNAME': hostname})
 
-            logging.info('creating worker certificate for host %s',
-                         worker_hostname)
+            logging.info('creating worker certificate for host %s', hostname)
             self.run_command(
                 cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                      "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
                      "-config={TEMPLATE_DIR}/ca-config.json "
                      "-profile=kubernetes "
-                     "-hostname=%(worker_hostname)s,%(ip_address)s "
+                     "-hostname=%(hostname)s,%(ip_address)s "
                      "%(template_path)s" % {
-                         'worker_hostname': worker_hostname,
+                         'hostname': hostname,
                          'ip_address': ip_address,
-                         'template_path': template_path,}),
-                write_output='{WORKER_DIR}/cfssl_gencert_worker-%s.output' % worker_hostname)
+                         'template_path': '{WORKER_DIR}/%s_worker-csr.json' % hostname}),
+                write_output='{WORKER_DIR}/cfssl_gencert_worker-%s.output' % hostname)
 
             self.run_command(
                 cmd=("{BIN_DIR}/cfssljson -bare "
-                     "-f {WORKER_DIR}/cfssl_gencert_worker-%s.output "
-                     "-bare {WORKER_DIR}/%s" % (worker_hostname, worker_hostname))
-            )
+                     "-f {WORKER_DIR}/cfssl_gencert_worker-%(hostname)s.output "
+                     "-bare {WORKER_DIR}/%(hostname)s" % {'hostname': hostname}))
 
 
     def create_worker_kubeconfigs(self):
