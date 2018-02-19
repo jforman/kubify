@@ -552,6 +552,8 @@ class KubeBuild(object):
                 'sudo cp encryption-config.yaml /etc/ssl/certs/'
             )
 
+        logging.info('done deploying encryptionconfig to controllers')
+
     def create_etcd_certs(self, node_type):
         """create certificates for etcd peers."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
