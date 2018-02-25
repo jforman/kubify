@@ -14,34 +14,21 @@ def hostname_with_index(hostname, domain, host_index):
         'host_index': host_index})
     return hostname.lower()
 
-def get_ip_from_range(host_index, starting_ip, netmask):
+def get_ip_from_range(host_index, cidr):
     """retrieve IP from range
 
-    host_index: what number host in the cluster is this. zero-indexed.
-    starting_ip: beginning IP in the cluster group.
-    netmask: netmask for the starting_ip's network.
+    cidr: XXXX.XXX.XXX.XXX/YY network and netmask specification
+    starting_ip: host_index of IP addresses in cider
 
-    If only one host, return IP address.
-    If more than one, we need to calculate which IP of set to return.
     """
-    if host_index == 0:
-        return starting_ip
-
     network = ipaddress.ip_network(
-            unicode('%s/%s' % (
-                starting_ip,
-                netmask)),
-            strict=False)
+            unicode(cidr))
     logging.debug("Computed Network: %s", network)
     hosts = [x.exploded for x in network.hosts()]
-    host_start_index = hosts.index(starting_ip)
-    logging.debug("Host start index: %s.", host_start_index)
 
-    # Subtract one from the list because the list is
-    # zero-indexed, but the cluster index is not.
-    ip_address = hosts[host_start_index+host_index]
-    logging.debug("Generated IP address: %s", ip_address)
-    return ip_address
+    logging.debug('Returning %s IP address from get_ip_from_range.', hosts[host_index])
+    return hosts[host_index]
+
 
 def render_template(template_file, template_vars):
     """Return jinja2 template with context vars filled in."""
