@@ -131,6 +131,7 @@ class KubeBuild(object):
         self.bootstrap_workers()
         self.create_admin_kubeconfig()
         self.create_and_deploy_kube_dns()
+        self.deploy_dashboard()
 
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
                  ignore_errors=False):
@@ -268,7 +269,7 @@ class KubeBuild(object):
 
     def create_output_dirs(self):
         """create the directory structure for storing create files."""
-        subdirs = ['addon', 'admin', 'api_server', 'bin', 'ca', 'encryption',
+        subdirs = ['addon', 'addon/dashboard', 'admin', 'api_server', 'bin', 'ca', 'encryption',
                    'etcd', 'proxy', 'tmp', 'workers']
 
         if all([not self.args.clear_output_dir,
@@ -512,6 +513,42 @@ class KubeBuild(object):
             )
         logging.info("finished creating admin client certificates")
 
+
+    def deploy_dashboard(self):
+        """create dashboard certificate and deploy service/pods/etc."""
+        logging.info("beginning to deploy dashboard")
+
+        self.run_command(
+            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
+                 "-config={TEMPLATE_DIR}/ca-config.json "
+                 "-hostname=%(hostname)s "
+                 "-profile=kubernetes {TEMPLATE_DIR}/kubernetes-csr.json" % {
+                     'hostname': self.config.get('general', 'dashboard_fqdn')}),
+            write_output='{TMP_DIR}/cfssl_gencert_dashboard.output')
+
+        self.run_command(
+            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_dashboard.output '
+                 '{ADDON_DIR}/dashboard/dashboard')
+            )
+
+        self.run_command(
+            cmd='mv {ADDON_DIR}/dashboard/dashboard-key.pem {ADDON_DIR}/dashboard/dashboard.key')
+
+        self.run_command(
+            cmd='mv {ADDON_DIR}/dashboard/dashboard.pem {ADDON_DIR}/dashboard/dashboard.crt')
+
+        self.run_command(
+            cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
+                 'create secret generic kubernetes-dashboard-certs '
+                 '--from-file={ADDON_DIR}/dashboard/ -n kube-system'))
+
+        self.run_command(
+            cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig apply '
+                 '-f https://raw.githubusercontent.com/kubernetes/dashboard/'
+                 'master/src/deploy/recommended/kubernetes-dashboard.yaml'))
+
+        logging.info("finished deploying dashboard")
 
     def create_encryption_configs(self):
         """create kubernetes encryptionconfig file."""
