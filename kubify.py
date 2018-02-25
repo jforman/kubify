@@ -760,10 +760,14 @@ class KubeBuild(object):
         """create api-server cert."""
         logging.info("beginning to create api server certificates")
         controller_addresses = self.config.get('controller', 'ip_addresses')
+
         hostname_arg = ("%(controller_addresses)s,"
+                        "%(kubernetes_service_ip_address)s,"
                         "%(api_server_ip_address)s,"
                         "127.0.0.1,kubernetes.default" % {
                             'controller_addresses': controller_addresses,
+                            'kubernetes_service_ip_address': helpers.get_ip_from_range(
+                                0, self.config.get('general', 'service_cidr')),
                             'api_server_ip_address': self.config.get(
                                 'general',
                                 'api_server_ip_address')
