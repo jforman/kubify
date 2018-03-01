@@ -129,7 +129,9 @@ class KubeBuild(object):
         self.deploy_encryption_configs()
         self.bootstrap_control_plane()
         self.bootstrap_control_plane_rbac()
-        self.bootstrap_workers()
+        self.bootstrap_node('controller')
+        self.bootstrap_node('worker')
+
         self.create_admin_kubeconfig()
         self.create_and_deploy_kube_dns()
         self.deploy_dashboard()
@@ -916,9 +918,8 @@ class KubeBuild(object):
                                                    'install_dir'),
                     'config': cur_file})
 
-    def bootstrap_workers(self):
+    def bootstrap_node(self, node_type):
         """bootstrap kubernetes workers."""
-        node_type = 'worker'
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         remote_user = self.config.get(node_type, 'remote_user')
         prefix = self.config.get(node_type, 'prefix')
@@ -934,24 +935,15 @@ class KubeBuild(object):
                 remote_user,
                 'kube-proxy kubelet',
                 'stop')
-            self.control_worker_binaries(hostname,
-                                         nodes[node_index],
-                                         remote_user,
-                                         'stop')
-            self.install_worker_binaries(hostname,
-                                         nodes[node_index],
-                                         remote_user)
-            self.configure_worker_cni_networking(hostname,
-                                                 nodes[node_index],
-                                                 remote_user)
-            self.configure_worker_kubelet_kubeproxy(hostname,
-                                                    nodes[node_index],
-                                                    remote_user)
-            self.control_worker_binaries(hostname,
-                                         nodes[node_index],
-                                         remote_user,
-                                         'start')
-
+            self.install_node_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user)
+            self.configure_node_kubeproxy(
+                hostname,
+                nodes[node_index],
+                remote_user)
+            self.configure_kubelet(node_type, hostname, nodes[node_index], remote_user)
     def configure_worker_cni_networking(self, hostname, remote_ip, remote_user):
         """create cni configs and install on worker node."""
         template_vars = {}
@@ -1007,7 +999,7 @@ class KubeBuild(object):
                 'kube-proxy kubelet',
                 'start')
 
-    def install_worker_binaries(self, hostname, remote_ip, remote_user):
+    def install_node_binaries(self, hostname, remote_ip, remote_user):
         """install kubernetes and networking binaries on worker node."""
         logging.info('bootstraping kubernetes worker node %s at %s.',
                      hostname,
@@ -1064,28 +1056,22 @@ class KubeBuild(object):
             )
 
 
-    def configure_worker_kubelet_kubeproxy(self, hostname, remote_ip, remote_user):
-        """create kubelet configuration for worker and install it on node."""
-        logging.info('deploying kubelet and kube-proxy to %s on %s.',
-                      hostname, remote_ip)
 
-        self.write_template(
-            '{TEMPLATE_DIR}/kube-proxy.service',
-            '{WORKER_DIR}/kube-proxy.service',
-            {'CLUSTER_CIDR': self.config.get('general', 'cluster_cidr')})
+    def configure_kubelet(self, node_type, hostname, remote_ip, remote_user):
+        """create kubelet configuration for node and install it on node."""
+        logging.info('deploying kubelet to %s on %s.', hostname, remote_ip)
+
 
         self.run_command_via_ssh(
             remote_user,
             remote_ip,
             'sudo mkdir -p /var/lib/kubelet/')
 
-        self.run_command_via_ssh(
+        self.scp_file(
+            '{WORKER_DIR}/%(hostname)s.kubeconfig' % {'hostname': hostname},
             remote_user,
             remote_ip,
-            'sudo cp %(hostname)s-key.pem %(hostname)s.pem /var/lib/kubelet/' % {
-                'hostname': hostname
-            }
-        )
+            '~/')
 
         self.run_command_via_ssh(
             remote_user,
@@ -1120,6 +1106,23 @@ class KubeBuild(object):
             remote_ip,
             '~/')
 
+        self.run_command_via_ssh(
+            remote_user,
+            remote_ip,
+            'sudo cp %(worker_hostname)s.kubelet.service /etc/systemd/system/kubelet.service' % {
+                'worker_hostname': hostname})
+
+
+    def configure_node_kubeproxy(self, hostname, remote_ip, remote_user):
+        """create kubeproxy configuration for worker and install it on node."""
+        logging.info('deploying kube-proxy to %s on %s.', hostname, remote_ip)
+
+        self.write_template(
+            '{TEMPLATE_DIR}/kube-proxy.service',
+            '{WORKER_DIR}/kube-proxy.service',
+            {'CLUSTER_CIDR': self.config.get('general', 'cluster_cidr'),
+             'INSTALL_DIR': self.config.get('general', 'install_dir')})
+
         self.scp_file(
             '{WORKER_DIR}/kube-proxy.service',
             remote_user,
@@ -1134,9 +1137,15 @@ class KubeBuild(object):
         self.run_command_via_ssh(
             remote_user,
             remote_ip,
-            'sudo cp %(worker_hostname)s.kubelet.service /etc/systemd/system/kubelet.service' % {
-                'worker_hostname': hostname})
+            'sudo mkdir -p /var/lib/kube-proxy/')
 
+
+        self.scp_file(
+            '{PROXY_DIR}/kube-proxy.kubeconfig',
+            remote_user,
+            remote_ip,
+            '~/',
+            )
         self.run_command_via_ssh(
             remote_user,
             remote_ip,
