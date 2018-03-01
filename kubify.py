@@ -128,12 +128,14 @@ class KubeBuild(object):
         self.deploy_node_certs('worker')
         self.deploy_worker_kubeproxy_kubeconfigs()
         self.deploy_encryption_configs()
+
         self.bootstrap_control_plane()
         self.bootstrap_control_plane_rbac()
         self.bootstrap_node('controller')
         self.bootstrap_node('worker')
 
         self.create_admin_kubeconfig()
+        self.apply_taints('controller')
         self.deploy_flannel()
         self.create_and_deploy_kube_dns()
         self.deploy_dashboard()
@@ -1187,6 +1189,23 @@ class KubeBuild(object):
                 remote_user,
                 remote_ip,
                 'sudo systemctl start %s' % services)
+
+    def apply_taints(self, node_type):
+        logging.info('applying node taints to %s nodes.' % node_type)
+
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(
+                self.config.get(node_type, 'prefix'),
+                self.get_node_domain(),
+                node_index)
+
+            logging.debug('applying node taint to %s.' % hostname)
+
+            self.run_command(
+                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
+                     'taint nodes --overwrite %(hostname)s '
+                     'node-role.kubernetes.io/master='':NoSchedule' % {
+                         'hostname': hostname}))
 
     def deploy_flannel(self):
         """deploy flannel overlay network."""
