@@ -943,54 +943,6 @@ class KubeBuild(object):
                 nodes[node_index],
                 remote_user)
             self.configure_kubelet(node_type, hostname, nodes[node_index], remote_user)
-    def configure_worker_cni_networking(self, hostname, remote_ip, remote_user):
-        """create cni configs and install on worker node."""
-        template_vars = {}
-        if self.args.dry_run:
-            template_vars.update({
-                'POD_CIDR': 'DRY_RUN_FILLER'
-            })
-        else:
-            template_vars.update({
-                'POD_CIDR': self.node_pod_cidr['worker'][remote_ip]
-            })
-
-        self.write_template(
-            '{TEMPLATE_DIR}/cni/10-bridge.conf',
-            '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
-                'worker_hostname': hostname},
-            template_vars)
-
-        self.scp_file(
-            '{WORKER_DIR}/%(worker_hostname)s-cni-10-bridge.conf' % {
-                'worker_hostname': hostname},
-            remote_user,
-            remote_ip,
-            '~')
-
-        self.scp_file(
-            '{TEMPLATE_DIR}/cni/99-loopback.conf',
-            remote_user,
-            remote_ip,
-            '~')
-
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'sudo mkdir -p /etc/rkt/net.d/')
-
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            ('sudo cp %(worker_hostname)s-cni-10-bridge.conf '
-             '/etc/rkt/net.d/10-bridge.conf') % {
-                 'worker_hostname': hostname})
-
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'sudo cp 99-loopback.conf /etc/rkt/net.d/')
-
             self.control_binaries(
                 hostname,
                 nodes[node_index],
