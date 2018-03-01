@@ -1030,11 +1030,6 @@ class KubeBuild(object):
             }
         )
 
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'sudo cp ca.pem /var/lib/kubernetes/')
-
         template_vars = {
             'CLUSTER_DNS': self.config.get('general',
                                            'cluster_dns_ip_address'),
