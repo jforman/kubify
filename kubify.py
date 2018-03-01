@@ -119,9 +119,9 @@ class KubeBuild(object):
         self.create_etcd_certs('worker')
         self.deploy_etcd_certs('controller')
         self.deploy_etcd_certs('worker')
-        self.deploy_kubernetes_certs('controller')
-        self.deploy_kubernetes_certs('worker')
         self.create_worker_kubeconfigs()
+        self.deploy_node_certs('controller')
+        self.deploy_node_certs('worker')
         self.create_kubeproxy_kubeconfigs()
         self.deploy_worker_kubeproxy_kubeconfigs()
         self.create_encryption_configs()
@@ -171,7 +171,7 @@ class KubeBuild(object):
             return output
 
 
-    def deploy_kubernetes_certs(self, node_type):
+    def deploy_node_certs(self, node_type):
         """copy the certificates to kubernetes nodes of node_type."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         remote_user = self.config.get(node_type, 'remote_user')
@@ -184,23 +184,55 @@ class KubeBuild(object):
                                                    node_index)
             logging.debug('deploying %s certificates to %s.', node_type,
                           hostname)
-            if node_type == 'worker':
-                pem_files = ("{CA_DIR}/ca.pem {WORKER_DIR}/%(hostname)s.pem "
+
+            if node_type == 'controller':
+                pem_files = ("{CA_DIR}/ca.pem "
                              "{CA_DIR}/ca-key.pem "
                              "{API_SERVER_DIR}/kubernetes-key.pem "
                              "{API_SERVER_DIR}/kubernetes.pem "
+                             "{WORKER_DIR}/%(hostname)s.pem "
                              "{WORKER_DIR}/%(hostname)s-key.pem " % {
                                  'hostname': hostname})
-            elif node_type == 'controller':
-                pem_files = ("{CA_DIR}/ca.pem {CA_DIR}/ca-key.pem "
-                             "{API_SERVER_DIR}/kubernetes-key.pem "
-                             "{API_SERVER_DIR}/kubernetes.pem ")
+            else:
+                pem_files = ("{CA_DIR}/ca.pem "
+                             "{WORKER_DIR}/%(hostname)s.pem "
+                             "{WORKER_DIR}/%(hostname)s-key.pem " % {
+                                 'hostname': hostname})
+
 
             self.scp_file(
                 pem_files,
                 remote_user,
                 nodes[node_index],
                 '~/')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo mkdir -p /var/lib/kubernetes/ /var/lib/kubelet/')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo cp ca.pem /var/lib/kubernetes/')
+
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo cp %(hostname)s-key.pem %(hostname)s.pem /var/lib/kubelet/' % {
+                    'hostname': hostname
+                    }
+                )
+
+            if node_type == 'controller':
+                self.run_command_via_ssh(
+                    remote_user,
+                    nodes[node_index],
+                    'sudo cp ca-key.pem /var/lib/kubernetes/')
+
+        logging.debug('finished deploying %s certificates.', node_type)
+
 
     def deploy_worker_kubeproxy_kubeconfigs(self):
         """copy the certificates to kubernetes worker nodes."""
