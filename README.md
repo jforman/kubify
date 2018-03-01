@@ -8,6 +8,7 @@ Why not the public cloud? Mostly because of cost. I've already got a beefy VM se
 
 ## Script Usage
 
+```bash
 usage: kubify.py [-h] [--clear_output_dir] [--config CONFIG] [--dry_run]
                  [--debug] [--kube_ver KUBE_VER] --output_dir OUTPUT_DIR
 
@@ -24,7 +25,7 @@ optional arguments:
   --output_dir OUTPUT_DIR
                         base directory where generated configs will be stored.
                         (default: None)
-
+```
 ## Configuration File
 
 Below is an example kubify.conf config file, with a minimum configuration specified.
