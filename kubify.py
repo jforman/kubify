@@ -99,7 +99,7 @@ class KubeBuild(object):
             logging.info('DRYRUN: would have written template '
                          '%(input_template)s to %(output_path)s.' % {
                              'input_template': input_template_path,
-                             'output_path': rendered_output_path })
+                             'output_path': rendered_output_path})
         else:
             with open(rendered_output_path, 'w') as output_file:
                 output_file.write(output)
@@ -629,8 +629,6 @@ class KubeBuild(object):
 
     def create_etcd_certs(self, node_type):
         """create certificates for etcd peers."""
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
-
         for cur_index in range(0, self.get_node_count(node_type)):
             logging.info('creating etcd certs for node type %s.', node_type)
             hostname = helpers.hostname_with_index(
@@ -865,9 +863,9 @@ class KubeBuild(object):
                 remote_user,
                 nodes[node_index],
                 ('sudo cp ca.pem %(hostname)s-etcd.pem %(hostname)s-etcd-key.pem '
-                '%(destination_dir)s' % {
-                    'hostname': hostname,
-                    'destination_dir': destination_dir }))
+                 '%(destination_dir)s' % {
+                     'hostname': hostname,
+                     'destination_dir': destination_dir}))
 
             self.run_command_via_ssh(
                 remote_user,
@@ -876,7 +874,7 @@ class KubeBuild(object):
                  '%(destination_dir)s/%(hostname)s-etcd.pem '
                  '%(destination_dir)s/%(hostname)s-etcd-key.pem ' % {
                      'hostname': hostname,
-                     'destination_dir': destination_dir }))
+                     'destination_dir': destination_dir}))
 
             self.run_command_via_ssh(
                 remote_user,
@@ -1165,8 +1163,7 @@ class KubeBuild(object):
                  'cluster_name': self.config.get('general', 'cluster_name'),
                  'api_server_ip_address': self.config.get('general',
                                                           'api_server_ip_address')
-             }
-        ))
+             }))
 
         self.run_command(
             ("{BIN_DIR}/kubectl config set-credentials admin "
@@ -1187,8 +1184,7 @@ class KubeBuild(object):
             ("{BIN_DIR}/kubectl config use-context %(cluster_name)s "
              "--kubeconfig={ADMIN_DIR}/kubeconfig" % {
                  'cluster_name': self.config.get('general', 'cluster_name')
-                 }
-             ))
+                 }))
 
         logging.info("done creating admin kubeconfig for remote access.")
 
@@ -1202,7 +1198,7 @@ class KubeBuild(object):
             '{ADDON_DIR}/kube-dns.yaml',
             {'CLUSTER_DNS_IP_ADDRESS': self.config.get(
                 'general',
-                'cluster_dns_ip_address' )}
+                'cluster_dns_ip_address')}
         )
 
         self.run_command(
