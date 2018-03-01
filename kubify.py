@@ -136,8 +136,8 @@ class KubeBuild(object):
         self.bootstrap_node('worker')
 
         self.create_admin_kubeconfig()
-        self.apply_taints('controller')
         self.deploy_flannel()
+        self.apply_taints('controller')
         self.create_and_deploy_kube_dns()
         self.deploy_dashboard()
 
