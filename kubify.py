@@ -927,6 +927,12 @@ class KubeBuild(object):
                 prefix,
                 self.get_node_domain(),
                 node_index)
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'kube-proxy kubelet',
+                'stop')
             self.control_worker_binaries(hostname,
                                          nodes[node_index],
                                          remote_user,
@@ -993,6 +999,12 @@ class KubeBuild(object):
             remote_ip,
             'sudo cp 99-loopback.conf /etc/rkt/net.d/')
 
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'kube-proxy kubelet',
+                'start')
 
     def install_worker_binaries(self, hostname, remote_ip, remote_user):
         """install kubernetes and networking binaries on worker node."""
@@ -1188,13 +1200,13 @@ class KubeBuild(object):
 
         logging.info('finished applying kube-dns service template.')
 
-    def control_worker_binaries(self, hostname, remote_ip, remote_user,
-                                 action=None):
+    def control_binaries(self, hostname, remote_ip, remote_user,
+                         services, action=None):
         """control kubernetes binaries on a host."""
 
 
         if action == "stop":
-            logging.info('stopping worker binaries on %s.', hostname)
+            logging.info('stopping services %s on %s.', services, hostname)
             # NOTE: ignore_errors on stop here because there might be a situation
             # where this is the initial rollout, and there's nothing to stop.
             # still seems like a hack. would it make sense to check for binaries
@@ -1203,11 +1215,11 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 remote_user,
                 remote_ip,
-                'sudo systemctl stop kubelet kube-proxy rktlet',
+                'sudo systemctl stop %s' % services,
                 ignore_errors=True)
 
         if action == "start":
-            logging.info('starting worker binaries on %s.', hostname)
+            logging.info('starting binaries on %s.', hostname)
 
             self.run_command_via_ssh(
                 remote_user,
@@ -1217,12 +1229,12 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 remote_user,
                 remote_ip,
-                'sudo systemctl enable kubelet kube-proxy rktlet')
+                'sudo systemctl enable %s'% services)
 
             self.run_command_via_ssh(
                 remote_user,
                 remote_ip,
-                'sudo systemctl start kubelet kube-proxy rktlet')
+                'sudo systemctl start %s' % services)
 
 
 def main():
