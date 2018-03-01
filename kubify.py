@@ -27,7 +27,6 @@ class KubeBuild(object):
 
         self.config = ConfigParser.SafeConfigParser()
         self.config.read(self.args.config)
-        self.node_pod_cidr = {}
 
         logging.debug('Checkout Path: %s, Output Dir: %s',
                       self.checkout_path, self.args.output_dir)
@@ -885,7 +884,6 @@ class KubeBuild(object):
 
     def bootstrap_workers(self):
         """bootstrap kubernetes workers."""
-        self.set_node_pod_cidr('worker')
         node_type = 'worker'
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         remote_user = self.config.get(node_type, 'remote_user')
@@ -962,45 +960,6 @@ class KubeBuild(object):
             remote_ip,
             'sudo cp 99-loopback.conf /etc/rkt/net.d/')
 
-    def set_node_pod_cidr(self, node_type):
-        """store dict of nodeIP:podCIDR associations."""
-
-        remote_host = self.config.get(node_type,
-                                      'ip_addresses').split(',')[0]
-
-        self.node_pod_cidr[node_type] = {}
-
-        logging.info("determining %s pod CIDR's on %s.", node_type,
-                     remote_host)
-        self.scp_file(
-            '{SCRIPTS_DIR}/determine_node_podcidr.sh',
-            self.config.get(node_type, 'remote_user'),
-            remote_host,
-            '~/'
-        )
-
-        self.run_command_via_ssh(
-            self.config.get(node_type, 'remote_user'),
-            remote_host,
-            'chmod +x ~/determine_node_podcidr.sh')
-
-        output = self.run_command_via_ssh(
-            self.config.get(node_type, 'remote_user'),
-            remote_host,
-            '~/determine_node_podcidr.sh https://127.0.0.1:2379',
-            return_output=True)
-
-        if self.args.dry_run:
-            logging.info('DRY RUN: would have attempted to set node_pod_cidr '
-                         'dict for %s type.', node_type)
-            return
-        nodepod_pairs = output.split(',')
-
-        for cur_pair in nodepod_pairs:
-            node_pair = cur_pair.split(':')
-            self.node_pod_cidr[node_type][node_pair[0]] = node_pair[1]
-
-        logging.info('completed determining node:pod CIDRs.')
 
     def install_worker_binaries(self, hostname, remote_ip, remote_user):
         """install kubernetes and networking binaries on worker node."""
@@ -1101,15 +1060,6 @@ class KubeBuild(object):
             'HOSTNAME': hostname,
             'INSTALL_DIR': self.config.get('general', 'install_dir')
         }
-
-        if self.args.dry_run:
-            template_vars.update({
-                'POD_CIDR': 'DRY_RUN_FILLER'
-            })
-        else:
-            template_vars.update({
-                'POD_CIDR': self.node_pod_cidr['worker'][remote_ip]
-            })
 
         self.write_template(
             '{TEMPLATE_DIR}/kubelet.service',
