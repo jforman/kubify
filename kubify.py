@@ -966,7 +966,6 @@ class KubeBuild(object):
             remote_user,
             remote_ip,
             '''sudo mkdir -p \
-            /etc/cni/net.d \
             /opt/cni/bin \
             /var/lib/kubelet \
             /var/lib/kube-proxy \
