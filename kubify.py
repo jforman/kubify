@@ -134,6 +134,7 @@ class KubeBuild(object):
         self.bootstrap_node('worker')
 
         self.create_admin_kubeconfig()
+        self.deploy_flannel()
         self.create_and_deploy_kube_dns()
         self.deploy_dashboard()
 
@@ -888,12 +889,6 @@ class KubeBuild(object):
                 'sudo systemctl start --no-block etcd-member.service'
             )
 
-            self.run_command_via_ssh(
-                remote_user,
-                nodes[node_index],
-                'sudo systemctl restart --no-block flanneld.service'
-            )
-
     def bootstrap_control_plane_rbac(self):
         """bootstrap control plane kubernetes rbac configs."""
 
@@ -1193,6 +1188,14 @@ class KubeBuild(object):
                 remote_user,
                 remote_ip,
                 'sudo systemctl start %s' % services)
+
+    def deploy_flannel(self):
+        """deploy flannel overlay network."""
+        self.run_command(
+            cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
+                 'apply -f https://raw.githubusercontent.com/coreos/flannel/'
+                 'master/Documentation/kube-flannel.yml'))
+
 
 
 def main():
