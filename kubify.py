@@ -1147,7 +1147,7 @@ class KubeBuild(object):
         )
 
         self.run_command(
-            ('{BIN_DIR}/kubectl create -f {ADDON_DIR}/kube-dns.yaml '
+            ('{BIN_DIR}/kubectl apply -f {ADDON_DIR}/kube-dns.yaml '
              '--kubeconfig={ADMIN_DIR}/kubeconfig '))
 
         logging.info('finished applying kube-dns service template.')
