@@ -111,7 +111,8 @@ class KubeBuild(object):
         self.download_tools()
         self.create_ca_cert_private_key()
         self.create_admin_client_cert()
-        self.create_worker_certs()
+        self.create_node_certs('worker')
+        self.create_node_certs('controller')
         self.create_proxy_certs()
         self.create_api_server_cert()
         self.create_etcd_certs('controller')
@@ -625,26 +626,26 @@ class KubeBuild(object):
                      "-bare {ETCD_DIR}/%(hostname)s-etcd" % {
                          'hostname': hostname}))
 
-    def create_worker_certs(self):
-        """create certificates for kubernetes workers."""
-        for cur_index in range(0, self.get_node_count('worker')):
-            logging.info('creating csr json template for worker %d.',
-                         cur_index)
+    def create_node_certs(self, node_type):
+        """create certificates for kubernetes nodes."""
+        for cur_index in range(0, self.get_node_count(node_type)):
+            logging.info('creating node-csr.json template for %s node %d.',
+                         node_type, cur_index)
             hostname = helpers.hostname_with_index(
-                self.config.get('worker', 'prefix'),
+                self.config.get(node_type, 'prefix'),
                 self.get_node_domain(),
                 cur_index)
-            ip_address = self.get_node_ip_addresses('worker').split(',')[cur_index]
+            ip_address = self.get_node_ip_addresses(node_type).split(',')[cur_index]
 
             logging.debug('Hostname: %s, IP Address: %s.',
                           hostname, ip_address)
 
             self.write_template(
-                '{TEMPLATE_DIR}/worker-csr.json',
-                '{WORKER_DIR}/%s_worker-csr.json' % hostname,
+                '{TEMPLATE_DIR}/node-csr.json',
+                '{WORKER_DIR}/%s_node-csr.json' % hostname,
                 {'HOSTNAME': hostname})
 
-            logging.info('creating worker certificate for host %s', hostname)
+            logging.info('creating node certificate for host %s', hostname)
             self.run_command(
                 cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                      "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
@@ -654,12 +655,12 @@ class KubeBuild(object):
                      "%(template_path)s" % {
                          'hostname': hostname,
                          'ip_address': ip_address,
-                         'template_path': '{WORKER_DIR}/%s_worker-csr.json' % hostname}),
-                write_output='{WORKER_DIR}/cfssl_gencert_worker-%s.output' % hostname)
+                         'template_path': '{WORKER_DIR}/%s_node-csr.json' % hostname}),
+                write_output='{WORKER_DIR}/cfssl_gencert_node-%s.output' % hostname)
 
             self.run_command(
                 cmd=("{BIN_DIR}/cfssljson -bare "
-                     "-f {WORKER_DIR}/cfssl_gencert_worker-%(hostname)s.output "
+                     "-f {WORKER_DIR}/cfssl_gencert_node-%(hostname)s.output "
                      "-bare {WORKER_DIR}/%(hostname)s" % {'hostname': hostname}))
 
 
