@@ -575,10 +575,14 @@ class KubeBuild(object):
         self.run_command(
             cmd='mv {ADDON_DIR}/dashboard/dashboard.pem {ADDON_DIR}/dashboard/dashboard.crt')
 
+        # There is no 'apply' for a secret, so when creating a secret,
+        # if it already exists, you error out. I'm not a fan, but for now
+        # this works.
         self.run_command(
             cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
                  'create secret generic kubernetes-dashboard-certs '
-                 '--from-file={ADDON_DIR}/dashboard/ -n kube-system'))
+                 '--from-file={ADDON_DIR}/dashboard/ -n kube-system'),
+            ignore_errors=True)
 
         self.run_command(
             cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig apply '
