@@ -592,6 +592,11 @@ class KubeBuild(object):
                  '-f https://raw.githubusercontent.com/kubernetes/dashboard/'
                  'master/src/deploy/recommended/kubernetes-dashboard.yaml'))
 
+        self.run_command(
+            cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig apply '
+                 '-f {CONFIG_DIR}/dashboard-rbac.yaml'))
+        )
+
         logging.info("finished deploying dashboard")
 
     def create_encryption_configs(self):
@@ -1214,7 +1219,6 @@ class KubeBuild(object):
             cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
                  'apply -f https://raw.githubusercontent.com/coreos/flannel/'
                  'master/Documentation/kube-flannel.yml'))
-
 
 
 def main():
