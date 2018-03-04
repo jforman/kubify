@@ -456,9 +456,12 @@ class KubeBuild(object):
 
             template_vars.update({'IP_ADDRESS': nodes[cur_index]})
 
+            self.run_command(
+                cmd=('mkdir -p {API_SERVER_DIR}/%s/' % hostname))
+
             self.write_template(
                 '{TEMPLATE_DIR}/kube-apiserver.service',
-                '{API_SERVER_DIR}/%s-kube-apiserver.service' % hostname,
+                '{API_SERVER_DIR}/%s/kube-apiserver.service' % hostname,
                 template_vars)
 
             self.deploy_file(
