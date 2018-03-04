@@ -122,6 +122,26 @@ class KubeBuild(object):
         if return_output:
             return output
 
+    def deploy_file(self, local_path, remote_user, remote_host, remote_path,
+                    executable=False):
+        """given local file(s) path, copy the file to a remote host and path."""
+
+        bare_filenames = [os.path.basename(x) for x in local_path.split()]
+        bare_filenames_str = " ".join(bare_filenames)
+        self.scp_file(local_path, remote_user, remote_host, '~/')
+
+        if executable:
+            self.run_command_via_ssh(
+                remote_user, remote_host,
+                'chmod +x %(bare_filenames)s' % {'bare_filenames': bare_filenames_str})
+
+        self.run_command_via_ssh(
+            remote_user, remote_host,
+            'sudo cp %(bare_filenames)s %(remote_path)s' % {
+                'bare_filenames': bare_filenames_str,
+                'remote_path': remote_path})
+
+
     def write_template(self, input_template, output_path, template_vars):
         """write a jinja2 template, with support for dry run and logging."""
 
@@ -432,27 +452,12 @@ class KubeBuild(object):
                 ignore_errors=True)
 
             for cur_file in kube_bins:
-                self.scp_file(
+                self.deploy_file(
                     '{BIN_DIR}/%s' % cur_file,
                     remote_user,
                     nodes[cur_index],
-                    '~')
-                self.run_command_via_ssh(
-                    remote_user,
-                    nodes[cur_index],
-                    'sudo cp %(cur_file)s %(install_dir)s/bin/' % {
-                        'cur_file': cur_file,
-                        'install_dir': install_dir
-                    }
-                )
-                self.run_command_via_ssh(
-                    remote_user,
-                    nodes[cur_index],
-                    'sudo chmod +x %(install_dir)s/bin/%(cur_file)s' % {
-                        'cur_file': cur_file,
-                        'install_dir': install_dir,
-                    }
-                )
+                    '%(install_dir)s/bin/' % {'install_dir': install_dir},
+                    executable=True)
 
             template_vars.update({'IP_ADDRESS': nodes[cur_index]})
 
@@ -461,26 +466,13 @@ class KubeBuild(object):
                 '{API_SERVER_DIR}/%s-kube-apiserver.service' % hostname,
                 template_vars)
 
-            self.scp_file(
-                '{API_SERVER_DIR}/%s-kube-apiserver.service' % hostname,
+            self.deploy_file(
+                ('{API_SERVER_DIR}/%s/kube-apiserver.service '
+                 '{API_SERVER_DIR}/kube-controller-manager.service '
+                 '{API_SERVER_DIR}/kube-scheduler.service ' % hostname),
                 remote_user,
                 nodes[cur_index],
-                '~/kube-apiserver.service'
-                )
-
-            self.scp_file(
-                '{API_SERVER_DIR}/kube-controller-manager.service',
-                remote_user,
-                nodes[cur_index],
-                '~/',
-                )
-
-            self.scp_file(
-                '{API_SERVER_DIR}/kube-scheduler.service',
-                remote_user,
-                nodes[cur_index],
-                '~/',
-                )
+                '/etc/systemd/system/')
 
             self.run_command_via_ssh(
                 remote_user,
@@ -613,17 +605,11 @@ class KubeBuild(object):
             logging.debug('deploying encryptionconfig to %s.', hostname)
             ec_file = ("{ENCRYPTION_DIR}/encryption-config.yaml")
 
-            self.scp_file(
-                ec_file,
+            self.deploy_file(
+                '{ENCRYPTION_DIR}/encryption-config.yaml',
                 remote_user,
                 nodes[node_index],
-                '~/')
-
-            self.run_command_via_ssh(
-                remote_user,
-                nodes[node_index],
-                'sudo cp encryption-config.yaml /etc/ssl/certs/'
-            )
+                '/etc/ssl/certs/')
 
         logging.info('done deploying encryptionconfig to controllers')
 
@@ -846,26 +832,17 @@ class KubeBuild(object):
 
             logging.info('bootstraping etcd on %s.', hostname)
 
-            self.scp_file(
-                cert_files,
-                remote_user,
-                nodes[node_index],
-                '~/'
-            )
-
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
                 'sudo mkdir -p %s' % destination_dir,
             )
 
-            self.run_command_via_ssh(
+            self.deploy_file(
+                cert_files,
                 remote_user,
                 nodes[node_index],
-                ('sudo cp ca.pem %(hostname)s-etcd.pem %(hostname)s-etcd-key.pem '
-                 '%(destination_dir)s' % {
-                     'hostname': hostname,
-                     'destination_dir': destination_dir}))
+                destination_dir)
 
             self.run_command_via_ssh(
                 remote_user,
@@ -976,29 +953,12 @@ class KubeBuild(object):
 
         kube_bins = ['kubectl', 'kubelet', 'kube-proxy']
         for cur_file in kube_bins:
-            self.scp_file(
+            self.deploy_file(
                 '{BIN_DIR}/%s' % cur_file,
                 remote_user,
                 remote_ip,
-                '~')
-
-            self.run_command_via_ssh(
-                remote_user,
-                remote_ip,
-                'sudo cp %(cur_file)s %(install_dir)s/bin/' % {
-                    'cur_file': cur_file,
-                    'install_dir': self.config.get('general', 'install_dir')
-                }
-            )
-            self.run_command_via_ssh(
-                remote_user,
-                remote_ip,
-                'sudo chmod +x %(install_dir)s/bin/%(cur_file)s' % {
-                    'cur_file': cur_file,
-                    'install_dir': self.config.get('general', 'install_dir'),
-                }
-            )
-
+                '%s/bin/' % self.config.get('general', 'install_dir'),
+                executable=True)
 
 
     def configure_kubelet(self, node_type, hostname, remote_ip, remote_user):
@@ -1011,19 +971,11 @@ class KubeBuild(object):
             remote_ip,
             'sudo mkdir -p /var/lib/kubelet/')
 
-        self.scp_file(
+        self.deploy_file(
             '{WORKER_DIR}/%(hostname)s.kubeconfig' % {'hostname': hostname},
             remote_user,
             remote_ip,
-            '~/')
-
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'sudo cp %(hostname)s.kubeconfig /var/lib/kubelet/kubeconfig' % {
-                'hostname': hostname
-            }
-        )
+            '/var/lib/kubelet/kubeconfig')
 
         template_vars = {
             'CLUSTER_DNS': self.config.get('general',
@@ -1038,19 +990,11 @@ class KubeBuild(object):
                 'worker_hostname': hostname},
             template_vars)
 
-        self.scp_file(
-            '{WORKER_DIR}/%(worker_hostname)s.kubelet.service' % {
-                'worker_hostname': hostname},
+        self.deploy_file(
+            '{WORKER_DIR}/%s.kubelet.service' % hostname,
             remote_user,
             remote_ip,
-            '~/')
-
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'sudo cp %(worker_hostname)s.kubelet.service /etc/systemd/system/kubelet.service' % {
-                'worker_hostname': hostname})
-
+            '/etc/systemd/system/kubelet.service')
 
     def configure_node_kubeproxy(self, hostname, remote_ip, remote_user):
         """create kubeproxy configuration for worker and install it on node."""
@@ -1062,34 +1006,25 @@ class KubeBuild(object):
             {'CLUSTER_CIDR': self.config.get('general', 'cluster_cidr'),
              'INSTALL_DIR': self.config.get('general', 'install_dir')})
 
-        self.scp_file(
+        self.deploy_file(
             '{WORKER_DIR}/kube-proxy.service',
             remote_user,
             remote_ip,
-            '~/')
+            '/etc/systemd/system/')
 
         self.run_command_via_ssh(
             remote_user,
             remote_ip,
-            'sudo cp kube-proxy.service /etc/systemd/system/')
-
         self.run_command_via_ssh(
             remote_user,
             remote_ip,
             'sudo mkdir -p /var/lib/kube-proxy/')
 
 
-        self.scp_file(
+        self.deploy_file(
             '{PROXY_DIR}/kube-proxy.kubeconfig',
             remote_user,
             remote_ip,
-            '~/',
-            )
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'sudo cp kube-proxy.kubeconfig /var/lib/kube-proxy/kubeconfig')
-
     def create_admin_kubeconfig(self):
         """create admin kubeconfig for remote access."""
         logging.info("creating admin kubeconfig for remote access.")
