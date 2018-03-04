@@ -178,7 +178,6 @@ class KubeBuild(object):
         self.deploy_etcd_certs('worker')
         self.deploy_node_certs('controller')
         self.deploy_node_certs('worker')
-        self.deploy_worker_kubeproxy_kubeconfigs()
         self.deploy_encryption_configs()
 
         self.bootstrap_control_plane()
@@ -256,29 +255,6 @@ class KubeBuild(object):
         logging.debug('finished deploying %s certificates.', node_type)
 
 
-    def deploy_worker_kubeproxy_kubeconfigs(self):
-        """copy the certificates to kubernetes worker nodes."""
-        node_type = 'worker'
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
-        remote_user = self.config.get(node_type, 'remote_user')
-        prefix = self.config.get(node_type, 'prefix')
-
-        logging.debug('deploying kubeconfigs to workers')
-        for node_index in range(0, self.get_node_count('worker')):
-            hostname = helpers.hostname_with_index(prefix,
-                                                   self.get_node_domain(),
-                                                   node_index)
-            logging.debug('deploying kubeconfig to %s.', hostname)
-            kubeconfig_files = (
-                "{WORKER_DIR}/%(hostname)s.kubeconfig "
-                "{PROXY_DIR}/kube-proxy.kubeconfig" % {
-                    'hostname': hostname})
-
-            self.scp_file(
-                kubeconfig_files,
-                remote_user,
-                nodes[node_index],
-                '~/')
 
     def run_command(self, cmd, return_output=False,
                     cmd_stdin=None, write_output='', ignore_errors=False):
@@ -938,7 +914,10 @@ class KubeBuild(object):
                 hostname,
                 nodes[node_index],
                 remote_user)
-            self.configure_kubelet(node_type, hostname, nodes[node_index], remote_user)
+            self.configure_kubelet(
+                hostname,
+                nodes[node_index],
+                remote_user)
             self.control_binaries(
                 hostname,
                 nodes[node_index],
@@ -985,8 +964,7 @@ class KubeBuild(object):
                 '%s/bin/' % self.config.get('general', 'install_dir'),
                 executable=True)
 
-
-    def configure_kubelet(self, node_type, hostname, remote_ip, remote_user):
+    def configure_kubelet(self, hostname, remote_ip, remote_user):
         """create kubelet configuration for node and install it on node."""
         logging.info('deploying kubelet to %s on %s.', hostname, remote_ip)
 
@@ -1040,16 +1018,14 @@ class KubeBuild(object):
         self.run_command_via_ssh(
             remote_user,
             remote_ip,
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'sudo mkdir -p /var/lib/kube-proxy/')
+            'sudo mkdir -p /var/lib/kube-proxy')
 
 
         self.deploy_file(
             '{PROXY_DIR}/kube-proxy.kubeconfig',
             remote_user,
             remote_ip,
+            '/var/lib/kube-proxy/kubeconfig')
 
     def create_and_deploy_kube_dns(self):
         """create kube-dns add-on yaml and deploy it to cluster."""
