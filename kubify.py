@@ -36,9 +36,6 @@ class KubeBuild(object):
         """return the node dns domain."""
         return self.config.get('general', 'domain_name')
 
-    def get_ssl_certificate_fields(self):
-        """return the ssl field names as a dict."""
-        return dict(self.config.items('certificate'))
 
     def get_node_ip_addresses(self, node_type):
         """get list of node IPs."""
@@ -52,7 +49,6 @@ class KubeBuild(object):
         """given string containing special macro, return command line with
         directories substituted in string."""
 
-        # first define the base directories
         path_dict = {
             '{CHECKOUT_DIR}': os.path.dirname(os.path.realpath(sys.argv[0])),
             '{OUTPUT_DIR}': self.args.output_dir,
@@ -154,9 +150,8 @@ class KubeBuild(object):
 
         if self.args.dry_run:
             logging.info('DRYRUN: would have written template '
-                         '%(input_template)s to %(output_path)s.' % {
-                             'input_template': input_template_path,
-                             'output_path': rendered_output_path})
+                         '%s to %s.', input_template_path,
+                         rendered_output_path)
         else:
             with open(rendered_output_path, 'w') as output_file:
                 output_file.write(output)
@@ -574,7 +569,6 @@ class KubeBuild(object):
         self.run_command(
             cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig apply '
                  '-f {CONFIG_DIR}/dashboard-rbac.yaml'))
-        )
 
         logging.info("finished deploying dashboard")
 
@@ -1110,7 +1104,8 @@ class KubeBuild(object):
                 'sudo systemctl start %s' % services)
 
     def apply_taints(self, node_type):
-        logging.info('applying node taints to %s nodes.' % node_type)
+        """apply various node taints."""
+        logging.info('applying node taints to %s nodes.', node_type)
 
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
@@ -1118,7 +1113,7 @@ class KubeBuild(object):
                 self.get_node_domain(),
                 node_index)
 
-            logging.debug('applying node taint to %s.' % hostname)
+            logging.debug('applying node taint to %s.', hostname)
 
             self.run_command(
                 cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
