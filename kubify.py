@@ -908,22 +908,13 @@ class KubeBuild(object):
         files = ['kube_apiserver_to_kubelet_clusterrole.yaml',
                  'kube_apiserver_to_kubelet_clusterrolebinding.yaml']
 
-        remote_host = self.config.get('controller',
-                                      'ip_addresses').split(',')[0]
+        logging.info('beginning to apply RBAC cluster role/binding yaml.')
         for cur_file in files:
-            self.scp_file(
-                '{CONFIG_DIR}/' + cur_file,
-                self.config.get('controller', 'remote_user'),
-                remote_host,
-                '~/')
+            self.run_command(
+                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
+                     'apply -f {CONFIG_DIR}/%s' % cur_file))
+        logging.info('finished applying RBAC cluster role/binding yaml.')
 
-            self.run_command_via_ssh(
-                self.config.get('controller', 'remote_user'),
-                remote_host,
-                '%(install_dir)s/bin/kubectl apply -f %(config)s' % {
-                    'install_dir': self.config.get('general',
-                                                   'install_dir'),
-                    'config': cur_file})
 
     def bootstrap_node(self, node_type):
         """bootstrap kubernetes workers."""
