@@ -810,6 +810,43 @@ class KubeBuild(object):
             )
         logging.info("finished creating api server certificates")
 
+    def create_admin_kubeconfig(self):
+        """create admin kubeconfig for remote access."""
+        logging.info("creating admin kubeconfig for remote access.")
+
+        self.run_command(
+            ("{BIN_DIR}/kubectl config set-cluster %(cluster_name)s "
+             "--certificate-authority={CA_DIR}/ca.pem "
+             "--embed-certs=true "
+             "--server=https://%(api_server_ip_address)s "
+             "--kubeconfig={ADMIN_DIR}/kubeconfig " % {
+                 'cluster_name': self.config.get('general', 'cluster_name'),
+                 'api_server_ip_address': self.config.get('general',
+                                                          'api_server_ip_address')
+             }))
+
+        self.run_command(
+            ("{BIN_DIR}/kubectl config set-credentials admin "
+             "--client-certificate={ADMIN_DIR}/admin.pem "
+             "--client-key={ADMIN_DIR}/admin-key.pem "
+             "--kubeconfig={ADMIN_DIR}/kubeconfig"))
+
+        self.run_command(
+            ("{BIN_DIR}/kubectl config set-context %(cluster_name)s "
+             "--cluster=%(cluster_name)s "
+             "--user=admin "
+             "--kubeconfig={ADMIN_DIR}/kubeconfig" % {
+                 'cluster_name': self.config.get('general', 'cluster_name')
+             }
+            ))
+
+        self.run_command(
+            ("{BIN_DIR}/kubectl config use-context %(cluster_name)s "
+             "--kubeconfig={ADMIN_DIR}/kubeconfig" % {
+                 'cluster_name': self.config.get('general', 'cluster_name')
+                 }))
+
+        logging.info("done creating admin kubeconfig for remote access.")
 
     def deploy_etcd_certs(self, node_type):
         """copy etcd certificates to directory on host and restart etcd."""
@@ -1025,43 +1062,6 @@ class KubeBuild(object):
             '{PROXY_DIR}/kube-proxy.kubeconfig',
             remote_user,
             remote_ip,
-    def create_admin_kubeconfig(self):
-        """create admin kubeconfig for remote access."""
-        logging.info("creating admin kubeconfig for remote access.")
-
-        self.run_command(
-            ("{BIN_DIR}/kubectl config set-cluster %(cluster_name)s "
-             "--certificate-authority={CA_DIR}/ca.pem "
-             "--embed-certs=true "
-             "--server=https://%(api_server_ip_address)s "
-             "--kubeconfig={ADMIN_DIR}/kubeconfig " % {
-                 'cluster_name': self.config.get('general', 'cluster_name'),
-                 'api_server_ip_address': self.config.get('general',
-                                                          'api_server_ip_address')
-             }))
-
-        self.run_command(
-            ("{BIN_DIR}/kubectl config set-credentials admin "
-             "--client-certificate={ADMIN_DIR}/admin.pem "
-             "--client-key={ADMIN_DIR}/admin-key.pem "
-             "--kubeconfig={ADMIN_DIR}/kubeconfig"))
-
-        self.run_command(
-            ("{BIN_DIR}/kubectl config set-context %(cluster_name)s "
-             "--cluster=%(cluster_name)s "
-             "--user=admin "
-             "--kubeconfig={ADMIN_DIR}/kubeconfig" % {
-                 'cluster_name': self.config.get('general', 'cluster_name')
-             }
-            ))
-
-        self.run_command(
-            ("{BIN_DIR}/kubectl config use-context %(cluster_name)s "
-             "--kubeconfig={ADMIN_DIR}/kubeconfig" % {
-                 'cluster_name': self.config.get('general', 'cluster_name')
-                 }))
-
-        logging.info("done creating admin kubeconfig for remote access.")
 
     def create_and_deploy_kube_dns(self):
         """create kube-dns add-on yaml and deploy it to cluster."""
