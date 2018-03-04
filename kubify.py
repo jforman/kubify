@@ -429,19 +429,7 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 remote_user,
                 nodes[cur_index],
-                'sudo systemctl stop kube-scheduler.service',
-                ignore_errors=True)
-
-            self.run_command_via_ssh(
-                remote_user,
-                nodes[cur_index],
-                'sudo systemctl stop kube-controller-manager.service',
-                ignore_errors=True)
-
-            self.run_command_via_ssh(
-                remote_user,
-                nodes[cur_index],
-                'sudo systemctl stop kube-apiserver.service',
+                'sudo systemctl stop kube-controller-manager.service kube-scheduler.service kube-apiserver.service',
                 ignore_errors=True)
 
             for cur_file in kube_bins:
