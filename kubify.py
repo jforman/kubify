@@ -85,6 +85,42 @@ class KubeBuild(object):
         logging.debug('returning translated path %s.', path)
         return path
 
+    def scp_file(self, local_path, remote_user, remote_host, remote_path,
+                 ignore_errors=False):
+        """copy the local file to the remote destination."""
+        ssh_args = "-q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+        self.run_command(
+            "scp %(ssh_args)s %(local_path)s "
+            "%(remote_user)s@%(remote_host)s:%(remote_path)s" % {
+                'ssh_args': ssh_args,
+                'local_path': local_path,
+                'remote_user': remote_user,
+                'remote_host': remote_host,
+                'remote_path': remote_path
+            },
+            ignore_errors=ignore_errors,
+        )
+
+    def run_command_via_ssh(self, remote_user, remote_host, command,
+                            ignore_errors=False, return_output=False):
+        """ssh to remote host and run specified command."""
+        ssh_args = ('-o UserKnownHostsFile=/dev/null '
+                    '-o StrictHostKeyChecking=no '
+                    '-t -q')
+
+        output = self.run_command(
+            "ssh %(ssh_args)s %(remote_user)s@%(remote_host)s "
+            "%(command)s" % {
+                'ssh_args': ssh_args,
+                'remote_user': remote_user,
+                'remote_host': remote_host,
+                'command': command},
+            ignore_errors=ignore_errors,
+            return_output=return_output,
+            )
+
+        if return_output:
+            return output
 
     def write_template(self, input_template, output_path, template_vars):
         """write a jinja2 template, with support for dry run and logging."""
@@ -140,43 +176,6 @@ class KubeBuild(object):
         self.apply_taints('controller')
         self.create_and_deploy_kube_dns()
         self.deploy_dashboard()
-
-    def scp_file(self, local_path, remote_user, remote_host, remote_path,
-                 ignore_errors=False):
-        """copy the local file to the remote destination."""
-        ssh_args = "-q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
-        self.run_command(
-            "scp %(ssh_args)s %(local_path)s "
-            "%(remote_user)s@%(remote_host)s:%(remote_path)s" % {
-                'ssh_args': ssh_args,
-                'local_path': local_path,
-                'remote_user': remote_user,
-                'remote_host': remote_host,
-                'remote_path': remote_path
-            },
-            ignore_errors=ignore_errors,
-        )
-
-    def run_command_via_ssh(self, remote_user, remote_host, command,
-                            ignore_errors=False, return_output=False):
-        """ssh to remote host and run specified command."""
-        ssh_args = ('-o UserKnownHostsFile=/dev/null '
-                    '-o StrictHostKeyChecking=no '
-                    '-t -q')
-
-        output = self.run_command(
-            "ssh %(ssh_args)s %(remote_user)s@%(remote_host)s "
-            "%(command)s" % {
-                'ssh_args': ssh_args,
-                'remote_user': remote_user,
-                'remote_host': remote_host,
-                'command': command},
-            ignore_errors=ignore_errors,
-            return_output=return_output,
-            )
-
-        if return_output:
-            return output
 
 
     def deploy_node_certs(self, node_type):
