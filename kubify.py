@@ -483,7 +483,7 @@ class KubeBuild(object):
         """create ca cert and private key."""
         logging.info("beginning to create ca certificates")
         self.run_command(
-            cmd="{BIN_DIR}/cfssl gencert -initca {TEMPLATE_DIR}/ca-csr.json",
+            cmd="{BIN_DIR}/cfssl gencert -initca {TEMPLATE_DIR}/kubernetes-csr.json",
             write_output='{TMP_DIR}/cfssl_initca.output')
         self.run_command(
             cmd='{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_initca.output {CA_DIR}/ca')
