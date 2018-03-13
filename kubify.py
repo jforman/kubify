@@ -14,6 +14,7 @@ import urllib
 
 import helpers
 
+
 class KubeBuild(object):
     """define, create, and deploy a kubernetes cluster methods."""
 
@@ -32,6 +33,19 @@ class KubeBuild(object):
         logging.debug('Checkout Path: %s, Output Dir: %s',
                       self.checkout_path, self.args.output_dir)
 
+
+    def timeit(method):
+        def timed(*args, **kwargs):
+            start_time = time.time()
+            result = method(*args, **kwargs)
+            end_time = time.time()
+
+            logging.debug('execution info: method: %s, elapsed: %0.3fs.',
+                          method.__name__, (end_time - start_time))
+            return result
+        return timed
+
+
     def get_node_domain(self):
         """return the node dns domain."""
         return self.config.get('general', 'domain_name')
@@ -45,6 +59,7 @@ class KubeBuild(object):
         """get number of nodes of a particular type."""
         return len(self.get_node_ip_addresses(node_type).split(','))
 
+    @timeit
     def translate_path(self, path):
         """given string containing special macro, return command line with
         directories substituted in string."""
@@ -81,6 +96,7 @@ class KubeBuild(object):
         logging.debug('returning translated path %s.', path)
         return path
 
+    @timeit
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
                  ignore_errors=False):
         """copy the local file to the remote destination."""
@@ -97,6 +113,7 @@ class KubeBuild(object):
             ignore_errors=ignore_errors,
         )
 
+    @timeit
     def run_command_via_ssh(self, remote_user, remote_host, command,
                             ignore_errors=False, return_output=False):
         """ssh to remote host and run specified command."""
@@ -118,6 +135,7 @@ class KubeBuild(object):
         if return_output:
             return output
 
+    @timeit
     def deploy_file(self, local_path, remote_user, remote_host, remote_path,
                     executable=False):
         """given local file(s) path, copy the file to a remote host and path."""
@@ -138,6 +156,7 @@ class KubeBuild(object):
                 'remote_path': remote_path})
 
 
+    @timeit
     def write_template(self, input_template, output_path, template_vars):
         """write a jinja2 template, with support for dry run and logging."""
 
@@ -157,6 +176,7 @@ class KubeBuild(object):
                 output_file.write(output)
 
 
+    @timeit
     def build(self):
         """main build sequencer function."""
         self.create_output_dirs()
@@ -191,7 +211,7 @@ class KubeBuild(object):
         self.create_and_deploy_kube_dns()
         self.deploy_dashboard()
 
-
+    @timeit
     def deploy_node_certs(self, node_type):
         """copy the certificates to kubernetes nodes of node_type."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
@@ -256,6 +276,7 @@ class KubeBuild(object):
 
 
 
+    @timeit
     def run_command(self, cmd, return_output=False,
                     cmd_stdin=None, write_output='', ignore_errors=False):
         """given a command, translate needed paths and run it."""
@@ -296,7 +317,7 @@ class KubeBuild(object):
         if return_output:
             return output
 
-
+    @timeit
     def create_output_dirs(self):
         """create the directory structure for storing create files."""
         subdirs = ['addon', 'addon/dashboard', 'admin', 'api_server', 'bin', 'ca', 'encryption',
@@ -332,6 +353,7 @@ class KubeBuild(object):
                 os.makedirs(os.path.join(self.args.output_dir,
                                          current_dir))
 
+    @timeit
     def download_tools(self):
         """download kubernetes cluster and cfssl cert creation binaries."""
         files_to_get = {
@@ -367,6 +389,7 @@ class KubeBuild(object):
 
         logging.info("done downloading tools")
 
+    @timeit
     def bootstrap_control_plane(self):
         """bootstrap kubernetes components on the controller hosts."""
         node_type = 'controller'
@@ -479,6 +502,7 @@ class KubeBuild(object):
                  'kube-scheduler'))
 
 
+    @timeit
     def create_ca_cert_private_key(self):
         """create ca cert and private key."""
         logging.info("beginning to create ca certificates")
@@ -490,6 +514,7 @@ class KubeBuild(object):
         logging.info("finished creating ca certificates")
 
 
+    @timeit
     def create_admin_client_cert(self):
         """create admin client certificate"""
         logging.info("beginning to create admin client certificates")
@@ -506,7 +531,7 @@ class KubeBuild(object):
             )
         logging.info("finished creating admin client certificates")
 
-
+    @timeit
     def deploy_dashboard(self):
         """create dashboard certificate and deploy service/pods/etc."""
         logging.info("beginning to deploy dashboard")
@@ -551,6 +576,7 @@ class KubeBuild(object):
 
         logging.info("finished deploying dashboard")
 
+    @timeit
     def create_encryption_configs(self):
         """create kubernetes encryptionconfig file."""
         logging.info('beginning to create Kubernetes encryptionconfig file.')
@@ -563,6 +589,7 @@ class KubeBuild(object):
 
         logging.info('finished creating Kubernetes encryptionconfig file.')
 
+    @timeit
     def deploy_encryption_configs(self):
         """deploy kubernetes encryptionconfig file."""
         node_type = 'controller'
@@ -586,6 +613,7 @@ class KubeBuild(object):
 
         logging.info('done deploying encryptionconfig to controllers')
 
+    @timeit
     def create_etcd_certs(self, node_type):
         """create certificates for etcd peers."""
         for cur_index in range(0, self.get_node_count(node_type)):
@@ -619,6 +647,7 @@ class KubeBuild(object):
                      "-bare {ETCD_DIR}/%(hostname)s-etcd" % {
                          'hostname': hostname}))
 
+    @timeit
     def create_node_certs(self, node_type):
         """create certificates for kubernetes nodes."""
         for cur_index in range(0, self.get_node_count(node_type)):
@@ -656,7 +685,7 @@ class KubeBuild(object):
                      "-f {WORKER_DIR}/cfssl_gencert_node-%(hostname)s.output "
                      "-bare {WORKER_DIR}/%(hostname)s" % {'hostname': hostname}))
 
-
+    @timeit
     def create_kubelet_kubeconfigs(self, node_type):
         """create kubeconfigs for specified node_type ."""
         for cur_index in range(0, self.get_node_count(node_type)):
@@ -699,6 +728,7 @@ class KubeBuild(object):
                 '--kubeconfig={WORKER_DIR}/%(hostname)s.kubeconfig' % {
                     'hostname': hostname})
 
+    @timeit
     def create_kubeproxy_kubeconfigs(self):
         """create kube-proxy kubeconfigs."""
         logging.info('creating kubeproxy kubeconfigs.')
@@ -733,6 +763,7 @@ class KubeBuild(object):
         )
         logging.info('finished creating kubeproxy kubeconfigs')
 
+    @timeit
     def create_proxy_certs(self):
         """create kube-proxy certs"""
         logging.info("beginning to create kube-proxy certificates")
@@ -749,6 +780,7 @@ class KubeBuild(object):
             )
         logging.info("finished creating kube-proxy certificates")
 
+    @timeit
     def create_api_server_cert(self):
         """create api-server cert."""
         logging.info("beginning to create api server certificates")
@@ -783,6 +815,7 @@ class KubeBuild(object):
             )
         logging.info("finished creating api server certificates")
 
+    @timeit
     def create_admin_kubeconfig(self):
         """create admin kubeconfig for remote access."""
         logging.info("creating admin kubeconfig for remote access.")
@@ -821,6 +854,7 @@ class KubeBuild(object):
 
         logging.info("done creating admin kubeconfig for remote access.")
 
+    @timeit
     def deploy_etcd_certs(self, node_type):
         """copy etcd certificates to directory on host and restart etcd."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
@@ -869,15 +903,16 @@ class KubeBuild(object):
                 'sudo systemctl stop etcd-member.service',
                 ignore_errors=True)
 
+            # TODO: investigate whether --no-block is the right thing here.
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
                 'sudo systemctl start --no-block etcd-member.service'
             )
 
+    @timeit
     def bootstrap_control_plane_rbac(self):
         """bootstrap control plane kubernetes rbac configs."""
-
         files = ['kube_apiserver_to_kubelet_clusterrole.yaml',
                  'kube_apiserver_to_kubelet_clusterrolebinding.yaml']
 
@@ -889,6 +924,7 @@ class KubeBuild(object):
         logging.info('finished applying RBAC cluster role/binding yaml.')
 
 
+    @timeit
     def bootstrap_node(self, node_type):
         """bootstrap kubernetes workers."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
@@ -925,6 +961,7 @@ class KubeBuild(object):
                 'kube-proxy kubelet',
                 'start')
 
+    @timeit
     def install_node_binaries(self, hostname, remote_ip, remote_user):
         """install kubernetes and networking binaries on worker node."""
         logging.info('bootstraping kubernetes worker node %s at %s.',
@@ -964,6 +1001,7 @@ class KubeBuild(object):
                 '%s/bin/' % self.config.get('general', 'install_dir'),
                 executable=True)
 
+    @timeit
     def configure_kubelet(self, hostname, remote_ip, remote_user):
         """create kubelet configuration for node and install it on node."""
         logging.info('deploying kubelet to %s on %s.', hostname, remote_ip)
@@ -999,6 +1037,7 @@ class KubeBuild(object):
             remote_ip,
             '/etc/systemd/system/kubelet.service')
 
+    @timeit
     def configure_node_kubeproxy(self, hostname, remote_ip, remote_user):
         """create kubeproxy configuration for worker and install it on node."""
         logging.info('deploying kube-proxy to %s on %s.', hostname, remote_ip)
@@ -1027,6 +1066,7 @@ class KubeBuild(object):
             remote_ip,
             '/var/lib/kube-proxy/kubeconfig')
 
+    @timeit
     def create_and_deploy_kube_dns(self):
         """create kube-dns add-on yaml and deploy it to cluster."""
 
@@ -1046,6 +1086,7 @@ class KubeBuild(object):
 
         logging.info('finished applying kube-dns service template.')
 
+    @timeit
     def control_binaries(self, hostname, remote_ip, remote_user,
                          services, action=None):
         """control kubernetes binaries on a host."""
@@ -1100,6 +1141,7 @@ class KubeBuild(object):
                      'node-role.kubernetes.io/master='':NoSchedule' % {
                          'hostname': hostname}))
 
+    @timeit
     def deploy_flannel(self):
         """deploy flannel overlay network."""
         self.run_command(
