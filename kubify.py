@@ -207,7 +207,7 @@ class KubeBuild(object):
         self.bootstrap_node('worker')
 
         self.deploy_flannel()
-        self.apply_taints('controller')
+        self.apply_taints_and_labels('controller')
         self.create_and_deploy_kube_dns()
         self.deploy_dashboard()
 
@@ -1123,8 +1123,8 @@ class KubeBuild(object):
                 remote_ip,
                 'sudo systemctl start %s' % services)
 
-    def apply_taints(self, node_type):
-        """apply various node taints."""
+    def apply_taints_and_labels(self, node_type):
+        """apply various node taints and labels."""
         logging.info('applying node taints to %s nodes.', node_type)
 
         for node_index in range(0, self.get_node_count(node_type)):
@@ -1140,6 +1140,10 @@ class KubeBuild(object):
                      'taint nodes --overwrite %(hostname)s '
                      'node-role.kubernetes.io/master='':NoSchedule' % {
                          'hostname': hostname}))
+            self.run_command(
+                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
+                     'label nodes --overwrite %(hostname)s '
+                     'role=controller' % { 'hostname': hostname}))
 
     @timeit
     def deploy_flannel(self):
