@@ -4,10 +4,7 @@ Documentation=https://github.com/kubernetes/kubernetes
 
 [Service]
 ExecStart={{INSTALL_DIR}}/bin/kube-proxy \
-  --cluster-cidr={{ CLUSTER_CIDR }}  \
-  --kubeconfig=/var/lib/kube-proxy/kubeconfig \
-  --proxy-mode=iptables \
-  --v=2
+  --config={{INSTALL_DIR}}/conf/kube-proxy.yaml
 Restart=on-failure
 RestartSec=5
 

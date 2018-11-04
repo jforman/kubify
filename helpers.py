@@ -1,4 +1,4 @@
-# Helper functions as part of Kubify script
+"""Helper functions as part of Kubify script."""
 
 import ipaddress
 import logging
@@ -8,6 +8,7 @@ import jinja2
 
 
 def hostname_with_index(hostname, domain, host_index):
+    """return indexed fqdn."""
     hostname = '%(hostname)s%(host_index)d.%(domain)s' % ({
         'hostname': hostname,
         'domain': domain,
@@ -21,8 +22,7 @@ def get_ip_from_range(host_index, cidr):
     starting_ip: host_index of IP addresses in cider
 
     """
-    network = ipaddress.ip_network(
-            unicode(cidr))
+    network = ipaddress.ip_network(unicode(cidr))
     logging.debug("Computed Network: %s", network)
     hosts = [x.exploded for x in network.hosts()]
 

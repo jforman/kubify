@@ -56,3 +56,6 @@ prefix=corea-worker
 ip_addresses=10.10.0.110,10.10.0.111,10.10.0.112,10.10.0.113,10.10.0.114
 ```
 
+### Misc
+
+What kubernetes versions exist? https://github.com/kubernetes/kubernetes/releases

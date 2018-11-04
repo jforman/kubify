@@ -4,8 +4,7 @@ Documentation=https://github.com/kubernetes/kubernetes
 
 [Service]
 ExecStart={{ INSTALL_DIR }}/bin/kube-scheduler \
-  --leader-elect=true \
-  --master=http://127.0.0.1:8080 \
+  --config={{ KUBE_CONFIG_DIR }}/kube-scheduler.yaml \
   --v=2
 Restart=on-failure
 RestartSec=5
