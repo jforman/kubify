@@ -181,12 +181,6 @@ class KubeBuild(object):
         """main build sequencer function."""
         self.create_output_dirs()
         self.download_tools()
-        self.create_kubelet_kubeconfigs('controller')
-        self.create_kubelet_kubeconfigs('worker')
-        self.create_kubeproxy_kubeconfigs()
-        self.create_encryption_configs()
-        self.create_admin_kubeconfig()
-
         self.deploy_etcd_certs('controller')
         self.deploy_etcd_certs('worker')
         self.deploy_node_certs('controller')
@@ -214,6 +208,15 @@ class KubeBuild(object):
             self.create_kube_scheduler_certs()
             self.create_api_server_cert()
             self.create_kube_service_account_certs()
+
+        if 'create_configs' in self.args.action:
+            self.create_kubelet_kubeconfigs('controller')
+            self.create_kubelet_kubeconfigs('worker')
+            self.create_kubeproxy_kubeconfigs()
+            self.create_kubecontrollermanager_kubeconfig()
+            self.create_kubescheduler_kubeconfig()
+            self.create_admin_kubeconfig()
+            self.create_encryption_configs()
 
     @timeit
     def deploy_node_certs(self, node_type):
@@ -691,7 +694,7 @@ class KubeBuild(object):
                 self.config.get(node_type, 'prefix'),
                 self.get_node_domain(),
                 cur_index)
-            logging.info('creating system:node kubeconfig for %s.', hostname)
+            logging.info('creating kubelet kubeconfig for %s.', hostname)
             self.run_command(
                 '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
                 '--certificate-authority={CA_DIR}/ca.pem '
@@ -707,8 +710,8 @@ class KubeBuild(object):
             self.run_command(
                 '{BIN_DIR}/kubectl config set-credentials '
                 'system:node:%(hostname)s '
-                '--client-certificate={WORKER_DIR}/%(hostname)s.pem '
-                '--client-key={WORKER_DIR}/%(hostname)s-key.pem '
+                '--client-certificate={WORKER_DIR}/%(hostname)s-kubelet.pem '
+                '--client-key={WORKER_DIR}/%(hostname)s-kubelet-key.pem '
                 '--embed-certs=true '
                 '--kubeconfig={WORKER_DIR}/%(hostname)s.kubeconfig' % {
                     'hostname': hostname})
@@ -725,6 +728,8 @@ class KubeBuild(object):
                 '{BIN_DIR}/kubectl config use-context default '
                 '--kubeconfig={WORKER_DIR}/%(hostname)s.kubeconfig' % {
                     'hostname': hostname})
+            logging.info('finished creating kubelet kubeconfig for %s.', hostname)
+
 
     @timeit
     def create_kubeproxy_kubeconfigs(self):
@@ -741,7 +746,7 @@ class KubeBuild(object):
                 'cluster_name': self.config.get('general', 'cluster_name')})
 
         self.run_command(
-            '{BIN_DIR}/kubectl config set-credentials kube-proxy '
+            '{BIN_DIR}/kubectl config set-credentials system:kube-proxy '
             '--client-certificate={PROXY_DIR}/kube-proxy.pem '
             '--client-key={PROXY_DIR}/kube-proxy-key.pem '
             '--embed-certs=true '
@@ -750,7 +755,7 @@ class KubeBuild(object):
         self.run_command(
             '{BIN_DIR}/kubectl config set-context default '
             '--cluster=%(cluster_name)s '
-            '--user=kube-proxy '
+            '--user=system:kube-proxy '
             '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig' % {
                 'cluster_name': self.config.get('general', 'cluster_name')
                 })
@@ -760,6 +765,79 @@ class KubeBuild(object):
             '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig'
         )
         logging.info('finished creating kubeproxy kubeconfigs')
+
+
+    @timeit
+    def create_kubecontrollermanager_kubeconfig(self):
+        """create kube-controller-manager kubeconfigs."""
+        logging.info('creating kube-controller-manager kubeconfig.')
+        self.run_command(
+            '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
+            '--certificate-authority={CA_DIR}/ca.pem '
+            '--embed-certs=true '
+            '--server=https://%(api_server)s:443 '
+            '--kubeconfig={API_SERVER_DIR}/kube-controller-manager.kubeconfig' % {
+                'api_server': self.config.get('general',
+                                              'api_server_ip_address'),
+                'cluster_name': self.config.get('general', 'cluster_name')})
+
+        self.run_command(
+            '{BIN_DIR}/kubectl config set-credentials system:kube-controller-manager '
+            '--client-certificate={API_SERVER_DIR}/kube-controller-manager.pem '
+            '--client-key={API_SERVER_DIR}/kube-controller-manager-key.pem '
+            '--embed-certs=true '
+            '--kubeconfig={API_SERVER_DIR}/kube-controller-manager.kubeconfig')
+
+        self.run_command(
+            '{BIN_DIR}/kubectl config set-context default '
+            '--cluster=%(cluster_name)s '
+            '--user=system:kube-controller-manager '
+            '--kubeconfig={API_SERVER_DIR}/kube-controller-manager.kubeconfig' % {
+                'cluster_name': self.config.get('general', 'cluster_name')
+                })
+
+        self.run_command(
+            '{BIN_DIR}/kubectl config use-context default '
+            '--kubeconfig={API_SERVER_DIR}/kube-controller-manager.kubeconfig'
+        )
+        logging.info('finished creating kube-controller-manager kubeconfig')
+
+
+    @timeit
+    def create_kubescheduler_kubeconfig(self):
+        """create kube-scheduler kubeconfigs."""
+        logging.info('creating kube-scheduler kubeconfig.')
+        self.run_command(
+            '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
+            '--certificate-authority={CA_DIR}/ca.pem '
+            '--embed-certs=true '
+            '--server=https://%(api_server)s:443 '
+            '--kubeconfig={API_SERVER_DIR}/kube-scheduler.kubeconfig' % {
+                'api_server': self.config.get('general',
+                                              'api_server_ip_address'),
+                'cluster_name': self.config.get('general', 'cluster_name')})
+
+        self.run_command(
+            '{BIN_DIR}/kubectl config set-credentials system:kube-scheduler '
+            '--client-certificate={API_SERVER_DIR}/kube-scheduler.pem '
+            '--client-key={API_SERVER_DIR}/kube-scheduler-key.pem '
+            '--embed-certs=true '
+            '--kubeconfig={API_SERVER_DIR}/kube-scheduler.kubeconfig')
+
+        self.run_command(
+            '{BIN_DIR}/kubectl config set-context default '
+            '--cluster=%(cluster_name)s '
+            '--user=system:kube-scheduler '
+            '--kubeconfig={API_SERVER_DIR}/kube-scheduler.kubeconfig' % {
+                'cluster_name': self.config.get('general', 'cluster_name')
+                })
+
+        self.run_command(
+            '{BIN_DIR}/kubectl config use-context default '
+            '--kubeconfig={API_SERVER_DIR}/kube-scheduler.kubeconfig'
+        )
+        logging.info('finished creating kube-scheduler kubeconfig')
+
 
     @timeit
     def create_kube_proxy_certs(self):
@@ -850,20 +928,21 @@ class KubeBuild(object):
             ("{BIN_DIR}/kubectl config set-credentials admin "
              "--client-certificate={ADMIN_DIR}/admin.pem "
              "--client-key={ADMIN_DIR}/admin-key.pem "
-             "--kubeconfig={ADMIN_DIR}/kubeconfig"))
+             "--embed-certs=true "
+             "--kubeconfig={ADMIN_DIR}/admin.kubeconfig"))
 
         self.run_command(
             ("{BIN_DIR}/kubectl config set-context %(cluster_name)s "
              "--cluster=%(cluster_name)s "
              "--user=admin "
-             "--kubeconfig={ADMIN_DIR}/kubeconfig" % {
+             "--kubeconfig={ADMIN_DIR}/admin.kubeconfig" % {
                  'cluster_name': self.config.get('general', 'cluster_name')
              }
             ))
 
         self.run_command(
             ("{BIN_DIR}/kubectl config use-context %(cluster_name)s "
-             "--kubeconfig={ADMIN_DIR}/kubeconfig" % {
+             "--kubeconfig={ADMIN_DIR}/admin.kubeconfig" % {
                  'cluster_name': self.config.get('general', 'cluster_name')
                  }))
 
