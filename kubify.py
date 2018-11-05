@@ -181,14 +181,6 @@ class KubeBuild(object):
         """main build sequencer function."""
         self.create_output_dirs()
         self.download_tools()
-        self.create_ca_cert_private_key()
-        self.create_etcd_certs('controller')
-        self.create_etcd_certs('worker')
-        self.create_node_certs('worker')
-        self.create_node_certs('controller')
-        self.create_admin_client_cert()
-        self.create_proxy_certs()
-        self.create_api_server_cert()
         self.create_kubelet_kubeconfigs('controller')
         self.create_kubelet_kubeconfigs('worker')
         self.create_kubeproxy_kubeconfigs()
@@ -210,6 +202,18 @@ class KubeBuild(object):
         self.apply_taints_and_labels('controller')
         self.create_and_deploy_kube_dns()
         self.deploy_dashboard()
+        if 'create_certs' in self.args.action:
+            self.create_ca_cert_private_key()
+            self.create_etcd_certs('controller')
+            self.create_etcd_certs('worker')
+            self.create_kubelet_certs('controller')
+            self.create_kubelet_certs('worker')
+            self.create_admin_client_cert()
+            self.create_kube_controller_manager_cert()
+            self.create_kube_proxy_certs()
+            self.create_kube_scheduler_certs()
+            self.create_api_server_cert()
+            self.create_kube_service_account_certs()
 
     @timeit
     def deploy_node_certs(self, node_type):
@@ -532,6 +536,9 @@ class KubeBuild(object):
         logging.info("finished creating admin client certificates")
 
     @timeit
+    def create_kube_controller_manager_cert(self):
+        """create controller manager certificate"""
+        logging.info("beginning to create controller manager certificate")
     def deploy_dashboard(self):
         """create dashboard certificate and deploy service/pods/etc."""
         logging.info("beginning to deploy dashboard")
@@ -540,41 +547,32 @@ class KubeBuild(object):
             cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                  "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
                  "-config={TEMPLATE_DIR}/ca-config.json "
-                 "-hostname=%(hostname)s "
-                 "-profile=kubernetes {TEMPLATE_DIR}/kubernetes-csr.json" % {
-                     'hostname': self.config.get('general', 'dashboard_fqdn')}),
-            write_output='{TMP_DIR}/cfssl_gencert_dashboard.output')
+                 "-profile=kubernetes {TEMPLATE_DIR}/kube-controller-manager-csr.json"),
+            write_output='{TMP_DIR}/cfssl_gencert_kube_controller_manager.output')
 
         self.run_command(
-            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_dashboard.output '
-                 '{ADDON_DIR}/dashboard/dashboard')
+            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_kube_controller_manager.output '
+                 '{API_SERVER_DIR}/kube-controller-manager')
             )
+        logging.info("finished creating controller manager certificate")
+
+    @timeit
+    def create_kube_service_account_certs(self):
+        """create kube service account certificate"""
+        logging.info("beginning to create service account certificate")
+        self.run_command(
+            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
+                 "-config={TEMPLATE_DIR}/ca-config.json "
+                 "-profile=kubernetes {TEMPLATE_DIR}/kube-service-account-csr.json"),
+            write_output='{TMP_DIR}/cfssl_gencert_service_account.output')
 
         self.run_command(
-            cmd='mv {ADDON_DIR}/dashboard/dashboard-key.pem {ADDON_DIR}/dashboard/dashboard.key')
+            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_service_account.output '
+                 '{API_SERVER_DIR}/service-account')
+            )
+        logging.info("finished creating controller manager certificate")
 
-        self.run_command(
-            cmd='mv {ADDON_DIR}/dashboard/dashboard.pem {ADDON_DIR}/dashboard/dashboard.crt')
-
-        # There is no 'apply' for a secret, so when creating a secret,
-        # if it already exists, you error out. I'm not a fan, but for now
-        # this works.
-        self.run_command(
-            cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
-                 'create secret generic kubernetes-dashboard-certs '
-                 '--from-file={ADDON_DIR}/dashboard/ -n kube-system'),
-            ignore_errors=True)
-
-        self.run_command(
-            cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig apply '
-                 '-f https://raw.githubusercontent.com/kubernetes/dashboard/'
-                 'master/src/deploy/recommended/kubernetes-dashboard.yaml'))
-
-        self.run_command(
-            cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig apply '
-                 '-f {CONFIG_DIR}/dashboard-rbac.yaml'))
-
-        logging.info("finished deploying dashboard")
 
     @timeit
     def create_encryption_configs(self):
@@ -648,10 +646,10 @@ class KubeBuild(object):
                          'hostname': hostname}))
 
     @timeit
-    def create_node_certs(self, node_type):
-        """create certificates for kubernetes nodes."""
+    def create_kubelet_certs(self, node_type):
+        """create certificates for kubernetes node kubelets."""
         for cur_index in range(0, self.get_node_count(node_type)):
-            logging.info('creating node-csr.json template for %s node %d.',
+            logging.info('creating kubelet-csr.json template for %s node %d.',
                          node_type, cur_index)
             hostname = helpers.hostname_with_index(
                 self.config.get(node_type, 'prefix'),
@@ -663,11 +661,11 @@ class KubeBuild(object):
                           hostname, ip_address)
 
             self.write_template(
-                '{TEMPLATE_DIR}/node-csr.json',
-                '{WORKER_DIR}/%s_node-csr.json' % hostname,
+                '{TEMPLATE_DIR}/kubelet-csr.json',
+                '{WORKER_DIR}/%s_kubelet-csr.json' % hostname,
                 {'HOSTNAME': hostname})
 
-            logging.info('creating node certificate for host %s', hostname)
+            logging.info('creating kubelet certificate for host %s', hostname)
             self.run_command(
                 cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                      "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
@@ -677,13 +675,13 @@ class KubeBuild(object):
                      "%(template_path)s" % {
                          'hostname': hostname,
                          'ip_address': ip_address,
-                         'template_path': '{WORKER_DIR}/%s_node-csr.json' % hostname}),
-                write_output='{WORKER_DIR}/cfssl_gencert_node-%s.output' % hostname)
+                         'template_path': '{WORKER_DIR}/%s_kubelet-csr.json' % hostname}),
+                write_output='{WORKER_DIR}/cfssl_gencert_kubelet-%s.output' % hostname)
 
             self.run_command(
                 cmd=("{BIN_DIR}/cfssljson -bare "
-                     "-f {WORKER_DIR}/cfssl_gencert_node-%(hostname)s.output "
-                     "-bare {WORKER_DIR}/%(hostname)s" % {'hostname': hostname}))
+                     "-f {WORKER_DIR}/cfssl_gencert_kubelet-%(hostname)s.output "
+                     "-bare {WORKER_DIR}/%(hostname)s-kubelet" % {'hostname': hostname}))
 
     @timeit
     def create_kubelet_kubeconfigs(self, node_type):
@@ -764,7 +762,7 @@ class KubeBuild(object):
         logging.info('finished creating kubeproxy kubeconfigs')
 
     @timeit
-    def create_proxy_certs(self):
+    def create_kube_proxy_certs(self):
         """create kube-proxy certs"""
         logging.info("beginning to create kube-proxy certificates")
         self.run_command(
@@ -779,6 +777,23 @@ class KubeBuild(object):
                  '{PROXY_DIR}/kube-proxy')
             )
         logging.info("finished creating kube-proxy certificates")
+
+    @timeit
+    def create_kube_scheduler_certs(self):
+        """create kube-scheduler certs"""
+        logging.info("beginning to create kube-scheduler certificates")
+        self.run_command(
+            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
+                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
+                 "-config={TEMPLATE_DIR}/ca-config.json "
+                 "-profile=kubernetes {TEMPLATE_DIR}/kube-scheduler-csr.json"),
+            write_output='{TMP_DIR}/cfssl_gencert_kube-scheduler.output')
+
+        self.run_command(
+            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_kube-scheduler.output '
+                 '{API_SERVER_DIR}/kube-scheduler')
+            )
+        logging.info("finished creating kube-scheduler certificates")
 
     @timeit
     def create_api_server_cert(self):
@@ -804,14 +819,14 @@ class KubeBuild(object):
                  "-config={TEMPLATE_DIR}/ca-config.json "
                  "-hostname=%(hostname_arg)s "
                  "-profile=kubernetes "
-                 "{TEMPLATE_DIR}/kubernetes-csr.json" % ({
+                 "{TEMPLATE_DIR}/api-server-csr.json" % ({
                      'hostname_arg': hostname_arg,
                      })),
             write_output='{TMP_DIR}/cfssl_gencert_api_server.output')
 
         self.run_command(
             cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_api_server.output '
-                 '{API_SERVER_DIR}/kubernetes')
+                 '{API_SERVER_DIR}/api-server')
             )
         logging.info("finished creating api server certificates")
 
@@ -1159,6 +1174,9 @@ def main():
     parser = argparse.ArgumentParser(
         description='Install Kubernetes, the hard way.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--action",
+                        choices=["create_certs", "create_configs", "deploy"],
+                        action='append')
     parser.add_argument('--clear_output_dir',
                         dest='clear_output_dir',
                         action='store_true',
