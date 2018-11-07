@@ -80,6 +80,7 @@ class KubeBuild(object):
             '{CONFIG_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'], 'configs'),
             '{ENCRYPTION_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
                                              'encryption'),
+            '{INSTALL_DIR}': self.config.get('general', 'install_dir'),
             '{ETCD_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'etcd'),
             '{PROXY_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'proxy'),
             '{SCRIPTS_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'],
@@ -142,6 +143,8 @@ class KubeBuild(object):
 
         bare_filenames = [os.path.basename(x) for x in local_path.split()]
         bare_filenames_str = " ".join(bare_filenames)
+        local_path = self.translate_path(local_path)
+        remote_path = self.translate_path(remote_path)
         self.scp_file(local_path, remote_user, remote_host, '~/')
 
         if executable:
