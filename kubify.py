@@ -1188,19 +1188,20 @@ class KubeBuild(object):
                          services, action=None):
         """control kubernetes binaries on a host."""
 
-
         if action == "stop":
             logging.info('stopping services %s on %s.', services, hostname)
-            # NOTE: ignore_errors on stop here because there might be a situation
-            # where this is the initial rollout, and there's nothing to stop.
-            # still seems like a hack. would it make sense to check for binaries
-            # existance first before stopping?
-
-            self.run_command_via_ssh(
+            stop_output = self.run_command_via_ssh(
                 remote_user,
                 remote_ip,
                 'sudo systemctl stop %s' % services,
-                ignore_errors=True)
+                ignore_errors=True,
+                return_output=True)
+
+            if 'not loaded.' in stop_output:
+                logging.info("Service %s not found. Service does not exist yet "
+                             "so not an error.", services)
+            else:
+                logging.fatal("Unable to stop service %s.", services)
 
         if action == "start":
             logging.info('starting binaries on %s.', hostname)
