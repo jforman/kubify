@@ -45,11 +45,18 @@ class KubeBuild(object):
             return result
         return timed
 
-
     def get_node_domain(self):
         """return the node dns domain."""
         return self.config.get('general', 'domain_name')
 
+    def get_etcd_discovery_url(self, cluster_size):
+        """get the etcd discovery url for cluster size."""
+        logging.info("Requesting new etcd discover URL. Cluster size: %s.",
+            cluster_size)
+        f = urllib.urlopen("https://discovery.etcd.io/new?size=%s" % cluster_size)
+        disc_url = f.read()
+        logging.info("Retrieved discovery URL: %s", disc_url)
+        return disc_url
 
     def get_node_ip_addresses(self, node_type):
         """get list of node IPs."""
@@ -184,8 +191,6 @@ class KubeBuild(object):
         """main build sequencer function."""
         self.create_output_dirs()
         self.download_tools()
-        self.deploy_etcd_certs('controller')
-        self.deploy_etcd_certs('worker')
         self.deploy_node_certs('controller')
         self.deploy_node_certs('worker')
         self.deploy_encryption_configs()
@@ -220,6 +225,12 @@ class KubeBuild(object):
             self.create_kubescheduler_kubeconfig()
             self.create_admin_kubeconfig()
             self.create_encryption_configs()
+            self.create_etcd_configs('controller')
+            self.create_etcd_configs('worker')
+
+        if 'deploy' in self.args.action:
+            self.deploy_etcd('controller')
+            self.deploy_etcd('worker')
 
     @timeit
     def deploy_node_certs(self, node_type):
@@ -383,6 +394,9 @@ class KubeBuild(object):
             self.translate_path('{BIN_DIR}/kube-proxy'),
             os.path.join(self.kube_release_dir, 'kube-scheduler'):
             self.translate_path('{BIN_DIR}/kube-scheduler'),
+            'https://github.com/etcd-io/etcd/releases/download/v%(ver)s/etcd-v%(ver)s-linux-amd64.tar.gz' % {
+            'ver': self.config.get('general', 'etcd_version')}: self.translate_path('{BIN_DIR}/etcd-v%s.tar.gz' % self.config.get('general', 'etcd_version'))
+
         }
 
         logging.info("downloading new set of binary tools")
@@ -396,6 +410,9 @@ class KubeBuild(object):
             logging.debug('downloading %s to %s.', remotef, localf)
             urllib.urlretrieve(remotef, localf)
             os.chmod(localf, 0775)
+
+        self.run_command(
+            'tar -xvzf {BIN_DIR}/etcd-v%s.tar.gz -C {BIN_DIR}' % self.config.get('general', 'etcd_version'))
 
         logging.info("done downloading tools")
 
@@ -650,6 +667,28 @@ class KubeBuild(object):
                      "-f {ETCD_DIR}/cfssl_gencert_etcd-%(hostname)s.output "
                      "-bare {ETCD_DIR}/%(hostname)s-etcd" % {
                          'hostname': hostname}))
+
+    @timeit
+    def create_etcd_configs(self, node_type):
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        discovery_url = self.get_etcd_discovery_url(len(nodes))
+        for cur_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(
+                self.config.get(node_type, 'prefix'),
+                self.get_node_domain(),
+                cur_index)
+            template_vars = {
+                'HOSTNAME': hostname,
+                'INSTALL_DIR': self.config.get('general', 'install_dir'),
+                'CERTS_DIR': self.config.get('general', 'ssl_certs_dir'),
+                'IP_ADDRESS': nodes[cur_index],
+                'DISCOVERY_URL': discovery_url,
+            }
+
+            self.write_template(
+                '{TEMPLATE_DIR}/etcd.service',
+                '{WORKER_DIR}/%s-etcd.service' % hostname,
+                template_vars)
 
     @timeit
     def create_kubelet_certs(self, node_type):
@@ -952,60 +991,87 @@ class KubeBuild(object):
         logging.info("done creating admin kubeconfig for remote access.")
 
     @timeit
-    def deploy_etcd_certs(self, node_type):
-        """copy etcd certificates to directory on host and restart etcd."""
+    def deploy_etcd(self, node_type):
+        """deploy etcd certs, configs and restart service."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
 
-        logging.info('bootstraping etcd on %s nodes.', node_type)
-        destination_dir = '/etc/ssl/certs/'
 
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
-                self.config.get(node_type, 'prefix'),
+                prefix,
                 self.get_node_domain(),
                 node_index)
 
-            cert_files = (
-                '{CA_DIR}/ca.pem {ETCD_DIR}/%(hostname)s-etcd.pem '
-                '{ETCD_DIR}/%(hostname)s-etcd-key.pem' % {
-                    'hostname': hostname})
-
-            logging.info('bootstraping etcd on %s.', hostname)
-
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
-                'sudo mkdir -p %s' % destination_dir,
-            )
+                'sudo mkdir -p {INSTALL_DIR}/bin {INSTALL_DIR}/certs')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'etcd',
+                'stop')
 
             self.deploy_file(
-                cert_files,
+                '{WORKER_DIR}/%s-etcd.service' % hostname,
                 remote_user,
                 nodes[node_index],
-                destination_dir)
+                '/etc/systemd/system/etcd.service')
 
-            self.run_command_via_ssh(
+            self.deploy_file(
+                '{CA_DIR}/ca.pem',
                 remote_user,
                 nodes[node_index],
-                ('sudo chown etcd:etcd %(destination_dir)s/ca.pem '
-                 '%(destination_dir)s/%(hostname)s-etcd.pem '
-                 '%(destination_dir)s/%(hostname)s-etcd-key.pem ' % {
-                     'hostname': hostname,
-                     'destination_dir': destination_dir}))
+                '{INSTALL_DIR}/certs/')
 
-            self.run_command_via_ssh(
+            self.deploy_file(
+                '{ETCD_DIR}/%s-etcd.pem' % hostname,
                 remote_user,
                 nodes[node_index],
-                'sudo systemctl stop etcd-member.service',
-                ignore_errors=True)
+                '{INSTALL_DIR}/certs/')
 
-            # TODO: investigate whether --no-block is the right thing here.
-            self.run_command_via_ssh(
+            self.deploy_file(
+                '{ETCD_DIR}/%s-etcd-key.pem' % hostname,
                 remote_user,
                 nodes[node_index],
-                'sudo systemctl start --no-block etcd-member.service'
-            )
+                '{INSTALL_DIR}/certs/')
+
+            self.deploy_file(
+                '{BIN_DIR}/etcd-v%s-linux-amd64/etcd' % self.config.get('general', 'etcd_version'),
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/bin/etcd')
+
+            self.deploy_file(
+                '{BIN_DIR}/etcd-v%s-linux-amd64/etcdctl' % self.config.get('general', 'etcd_version'),
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/bin/etcdctl')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'etcd',
+                'daemon-reload')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'etcd',
+                'enable')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'etcd',
+                'start')
 
     @timeit
     def bootstrap_control_plane_rbac(self):
