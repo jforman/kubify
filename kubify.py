@@ -233,6 +233,7 @@ class KubeBuild(object):
             self.deploy_etcd('controller')
             self.deploy_etcd('worker')
             self.deploy_control_plane()
+            self.bootstrap_control_plane_rbac()
 
     @timeit
     def deploy_node_certs(self, node_type):
@@ -1133,7 +1134,7 @@ class KubeBuild(object):
         logging.info('beginning to apply RBAC cluster role/binding yaml.')
         for cur_file in files:
             self.run_command(
-                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
+                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
                      'apply -f {CONFIG_DIR}/%s' % cur_file))
         logging.info('finished applying RBAC cluster role/binding yaml.')
 
