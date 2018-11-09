@@ -4,7 +4,7 @@ Documentation=https://github.com/kubernetes/kubernetes
 
 [Service]
 ExecStart={{ INSTALL_DIR }}/bin/kube-scheduler \
-  --config={{ KUBE_CONFIG_DIR }}/kube-scheduler.yaml \
+  --config={{ INSTALL_DIR }}/conf/kube-scheduler.yaml \
   --v=2
 Restart=on-failure
 RestartSec=5

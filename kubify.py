@@ -195,7 +195,6 @@ class KubeBuild(object):
         self.deploy_node_certs('worker')
         self.deploy_encryption_configs()
 
-        self.bootstrap_control_plane()
         self.bootstrap_control_plane_rbac()
         self.bootstrap_node('controller')
         self.bootstrap_node('worker')
@@ -227,10 +226,13 @@ class KubeBuild(object):
             self.create_encryption_configs()
             self.create_etcd_configs('controller')
             self.create_etcd_configs('worker')
+            self.create_control_plane_configs()
+
 
         if 'deploy' in self.args.action:
             self.deploy_etcd('controller')
             self.deploy_etcd('worker')
+            self.deploy_control_plane()
 
     @timeit
     def deploy_node_certs(self, node_type):
@@ -417,16 +419,10 @@ class KubeBuild(object):
         logging.info("done downloading tools")
 
     @timeit
-    def bootstrap_control_plane(self):
-        """bootstrap kubernetes components on the controller hosts."""
+    def create_control_plane_configs(self):
         node_type = 'controller'
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         etcd_servers = ",".join(['https://%s:2379' % x for x in nodes])
-        install_dir = self.config.get('general', 'install_dir')
-        kube_bins = ['kube-apiserver', 'kube-controller-manager',
-                     'kube-scheduler', 'kubectl']
-        remote_user = self.config.get(node_type, 'remote_user')
-
         template_vars = {
             'CERTS_DIR': self.config.get('general',
                                          'ssl_certs_dir'),
@@ -445,42 +441,28 @@ class KubeBuild(object):
             '{API_SERVER_DIR}/kube-controller-manager.service',
             template_vars)
 
-        # write kube-scheduler
         self.write_template(
             '{TEMPLATE_DIR}/kube-scheduler.service',
             '{API_SERVER_DIR}/kube-scheduler.service',
             template_vars)
 
-        logging.info('bootstraping kubernetes on %s nodes.', node_type)
+        self.write_template(
+            '{TEMPLATE_DIR}/kube-scheduler.yaml',
+            '{API_SERVER_DIR}/kube-scheduler.yaml',
+            template_vars)
+
 
         for cur_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
                 self.config.get('controller', 'prefix'),
                 self.get_node_domain(),
                 cur_index)
-            logging.info('bootstrapping %s for kubernetes.', hostname)
-            self.run_command_via_ssh(
-                remote_user,
-                nodes[cur_index],
-                'sudo mkdir -p %(install_dir)s/bin/' % {
-                    'install_dir': install_dir}
-            )
+            logging.info('creating control plane configs for %s.',
+                hostname)
 
-            self.run_command_via_ssh(
-                remote_user,
-                nodes[cur_index],
-                'sudo systemctl stop kube-controller-manager.service kube-scheduler.service kube-apiserver.service',
-                ignore_errors=True)
-
-            for cur_file in kube_bins:
-                self.deploy_file(
-                    '{BIN_DIR}/%s' % cur_file,
-                    remote_user,
-                    nodes[cur_index],
-                    '%(install_dir)s/bin/' % {'install_dir': install_dir},
-                    executable=True)
-
-            template_vars.update({'IP_ADDRESS': nodes[cur_index]})
+            template_vars.update({
+                'IP_ADDRESS': nodes[cur_index],
+                'HOSTNAME': hostname})
 
             self.run_command(
                 cmd=('mkdir -p {API_SERVER_DIR}/%s/' % hostname))
@@ -490,43 +472,112 @@ class KubeBuild(object):
                 '{API_SERVER_DIR}/%s/kube-apiserver.service' % hostname,
                 template_vars)
 
+
+    @timeit
+    def deploy_control_plane(self):
+        """deploy kubernetes control plane configs/certs/binaries/services."""
+        node_type = 'controller'
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        kube_bins = ['kube-apiserver', 'kube-controller-manager',
+                     'kube-scheduler', 'kubectl']
+        remote_user = self.config.get(node_type, 'remote_user')
+
+
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(
+                self.config.get('controller', 'prefix'),
+                self.get_node_domain(),
+                node_index)
+
+            logging.info('deploying kubernetes control plane on %s.', hostname)
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo mkdir -p {INSTALL_DIR}/bin/')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo mkdir -p {INSTALL_DIR}/conf/')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'kube-controller-manager',
+                'stop')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'kube-scheduler',
+                'stop')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'kube-apiserver',
+                'stop')
+
+            for cur_file in kube_bins:
+                self.deploy_file(
+                    '{BIN_DIR}/%s' % cur_file,
+                    remote_user,
+                    nodes[node_index],
+                    '{INSTALL_DIR}/bin/',
+                    executable=True)
+
+            self.deploy_file(
+                ('{ENCRYPTION_DIR}/encryption-config.yaml '
+                 '{API_SERVER_DIR}/kube-controller-manager.kubeconfig '
+                 '{API_SERVER_DIR}/kube-scheduler.kubeconfig '
+                 '{API_SERVER_DIR}/kube-scheduler.yaml'),
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/conf/')
+
             self.deploy_file(
                 ('{API_SERVER_DIR}/%s/kube-apiserver.service '
                  '{API_SERVER_DIR}/kube-controller-manager.service '
                  '{API_SERVER_DIR}/kube-scheduler.service ' % hostname),
                 remote_user,
-                nodes[cur_index],
+                nodes[node_index],
                 '/etc/systemd/system/')
 
-            self.run_command_via_ssh(
+            self.deploy_file(
+                ('{API_SERVER_DIR}/api-server.pem '
+                 '{API_SERVER_DIR}/api-server-key.pem '
+                 '{CA_DIR}/ca.pem '
+                 '{CA_DIR}/ca-key.pem '
+                 '{API_SERVER_DIR}/service-account.pem '
+                 '{API_SERVER_DIR}/service-account-key.pem'),
                 remote_user,
-                nodes[cur_index],
-                ('sudo cp kube-apiserver.service kube-scheduler.service '
-                 'kube-controller-manager.service /etc/systemd/system/'))
+                nodes[node_index],
+                '{INSTALL_DIR}/certs/')
 
-            self.run_command_via_ssh(
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
                 remote_user,
-                nodes[cur_index],
-                ('sudo cp kubernetes.pem kubernetes-key.pem ca.pem ca-key.pem '
-                 '/etc/ssl/certs/')
-            )
+                'kube-controller-manager',
+                'start')
 
-            self.run_command_via_ssh(
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
                 remote_user,
-                nodes[cur_index],
-                'sudo systemctl daemon-reload')
+                'kube-apiserver',
+                'start')
 
-            self.run_command_via_ssh(
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
                 remote_user,
-                nodes[cur_index],
-                ('sudo systemctl enable kube-apiserver kube-controller-manager '
-                 'kube-scheduler'))
-
-            self.run_command_via_ssh(
-                remote_user,
-                nodes[cur_index],
-                ('sudo systemctl start kube-apiserver kube-controller-manager '
-                 'kube-scheduler'))
+                'kube-scheduler',
+                'start')
 
 
     @timeit
