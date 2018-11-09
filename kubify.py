@@ -1172,8 +1172,8 @@ class KubeBuild(object):
                 'start')
 
     @timeit
-    def bootstrap_control_plane_rbac(self):
-        """bootstrap control plane kubernetes rbac configs."""
+    def deploy_control_plane_rbac(self):
+        """deploy control plane kubernetes rbac configs."""
         files = ['kube_apiserver_to_kubelet_clusterrole.yaml',
                  'kube_apiserver_to_kubelet_clusterrolebinding.yaml']
 
