@@ -1246,6 +1246,11 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
+                'sudo mkdir -p {INSTALL_DIR}/conf/')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
                 'sudo mkdir -p /opt/cni/bin/')
 
             self.control_binaries(
@@ -1284,6 +1289,11 @@ class KubeBuild(object):
                 remote_user,
                 nodes[node_index],
                 'sudo mv /tmp/runsc /usr/local/bin/')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo chmod +x /usr/local/bin/runc /usr/local/bin/runsc')
 
             self.run_command_via_ssh(
                 remote_user,
