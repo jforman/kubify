@@ -267,7 +267,7 @@ class KubeBuild(object):
 
             self.deploy_kubeproxy('controller')
             self.deploy_kubeproxy('worker')
-
+            self.deploy_kuberouter()
 
 
     @timeit
@@ -1539,13 +1539,11 @@ class KubeBuild(object):
                      'role=controller' % { 'hostname': hostname}))
 
     @timeit
-    def deploy_flannel(self):
-        """deploy flannel overlay network."""
+    def deploy_kuberouter(self):
+        """deploy kube-router."""
         self.run_command(
-            cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
-                 'apply -f https://raw.githubusercontent.com/coreos/flannel/'
-                 'master/Documentation/kube-flannel.yml'))
-
+            cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
+                 'apply -f {CONFIG_DIR}/kube-router.yaml'))
 
 def main():
     """main for Kubify script."""
