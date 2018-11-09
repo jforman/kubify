@@ -3,6 +3,7 @@
 import argparse
 import base64
 import ConfigParser
+import json
 import logging
 import os
 import shutil
@@ -33,7 +34,6 @@ class KubeBuild(object):
 
         logging.debug('Checkout Path: %s, Output Dir: %s',
                       self.checkout_path, self.args.output_dir)
-
 
     def timeit(method):
         def timed(*args, **kwargs):
