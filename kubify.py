@@ -29,6 +29,7 @@ class KubeBuild(object):
 
         self.config = ConfigParser.SafeConfigParser()
         self.config.read(self.args.config)
+        self.node_pod_cidrs = {}
 
         logging.debug('Checkout Path: %s, Output Dir: %s',
                       self.checkout_path, self.args.output_dir)
@@ -65,6 +66,20 @@ class KubeBuild(object):
     def get_node_count(self, node_type):
         """get number of nodes of a particular type."""
         return len(self.get_node_ip_addresses(node_type).split(','))
+
+    def set_node_pod_cidrs(self):
+        """create dictionary of node->pod CIDR mappings."""
+        node_output = self.run_command(
+            ("{BIN_DIR}/kubectl "
+             "--kubeconfig {ADMIN_DIR}/admin.kubeconfig "
+             "get nodes -o json"),
+            return_output=True)
+        node_json = json.loads(node_output)
+        for item in node_json["items"]:
+            node = item["metadata"]["name"]
+            podcidr = item["spec"]["podCIDR"]
+            self.node_pod_cidrs[node] = podcidr
+            logging.info("Node %s has pod CIDR %s.", node, podcidr)
 
     @timeit
     def translate_path(self, path):
@@ -219,7 +234,7 @@ class KubeBuild(object):
         if 'create_configs' in self.args.action:
             self.create_kubelet_kubeconfigs('controller')
             self.create_kubelet_kubeconfigs('worker')
-            self.create_kubeproxy_kubeconfigs()
+            self.create_kubeproxy_configs()
             self.create_kubecontrollermanager_kubeconfig()
             self.create_kubescheduler_kubeconfig()
             self.create_admin_kubeconfig()
@@ -227,76 +242,31 @@ class KubeBuild(object):
             self.create_etcd_configs('controller')
             self.create_etcd_configs('worker')
             self.create_control_plane_configs()
-
+            self.create_containerd_configs()
+            self.create_kubelet_configs('controller')
+            self.create_kubelet_configs('worker')
 
         if 'deploy' in self.args.action:
             self.deploy_etcd('controller')
             self.deploy_etcd('worker')
             self.deploy_control_plane()
-            self.bootstrap_control_plane_rbac()
+            self.deploy_control_plane_rbac()
+            self.deploy_containerd('controller')
+            self.deploy_containerd('worker')
+            self.deploy_kubelet('controller')
+            self.deploy_kubelet('worker')
 
-    @timeit
-    def deploy_node_certs(self, node_type):
-        """copy the certificates to kubernetes nodes of node_type."""
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
-        remote_user = self.config.get(node_type, 'remote_user')
-        prefix = self.config.get(node_type, 'prefix')
+            # We have to deploy the kubelets first
+            # before we can determine the POD CIDR
+            # for each node.
+            self.set_node_pod_cidrs()
+            self.create_cni_configs('controller')
+            self.create_cni_configs('worker')
+            self.deploy_cni_configs('controller')
+            self.deploy_cni_configs('worker')
 
-        logging.debug('deploying %s certificates.', node_type)
-        for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(prefix,
-                                                   self.get_node_domain(),
-                                                   node_index)
-            logging.debug('deploying %s certificates to %s.', node_type,
-                          hostname)
-
-            if node_type == 'controller':
-                pem_files = ("{CA_DIR}/ca.pem "
-                             "{CA_DIR}/ca-key.pem "
-                             "{API_SERVER_DIR}/kubernetes-key.pem "
-                             "{API_SERVER_DIR}/kubernetes.pem "
-                             "{WORKER_DIR}/%(hostname)s.pem "
-                             "{WORKER_DIR}/%(hostname)s-key.pem " % {
-                                 'hostname': hostname})
-            else:
-                pem_files = ("{CA_DIR}/ca.pem "
-                             "{WORKER_DIR}/%(hostname)s.pem "
-                             "{WORKER_DIR}/%(hostname)s-key.pem " % {
-                                 'hostname': hostname})
-
-
-            self.scp_file(
-                pem_files,
-                remote_user,
-                nodes[node_index],
-                '~/')
-
-            self.run_command_via_ssh(
-                remote_user,
-                nodes[node_index],
-                'sudo mkdir -p /var/lib/kubernetes/ /var/lib/kubelet/')
-
-            self.run_command_via_ssh(
-                remote_user,
-                nodes[node_index],
-                'sudo cp ca.pem /var/lib/kubernetes/')
-
-
-            self.run_command_via_ssh(
-                remote_user,
-                nodes[node_index],
-                'sudo cp %(hostname)s-key.pem %(hostname)s.pem /var/lib/kubelet/' % {
-                    'hostname': hostname
-                    }
-                )
-
-            if node_type == 'controller':
-                self.run_command_via_ssh(
-                    remote_user,
-                    nodes[node_index],
-                    'sudo cp ca-key.pem /var/lib/kubernetes/')
-
-        logging.debug('finished deploying %s certificates.', node_type)
+            self.deploy_kubeproxy('controller')
+            self.deploy_kubeproxy('worker')
 
 
 
@@ -826,9 +796,10 @@ class KubeBuild(object):
 
 
     @timeit
-    def create_kubeproxy_kubeconfigs(self):
+    def create_kubeproxy_configs(self):
         """create kube-proxy kubeconfigs."""
-        logging.info('creating kubeproxy kubeconfigs.')
+        logging.info('creating kubeproxy kube, yaml, and service config.')
+
         self.run_command(
             '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
             '--certificate-authority={CA_DIR}/ca.pem '
@@ -858,8 +829,23 @@ class KubeBuild(object):
             '{BIN_DIR}/kubectl config use-context default '
             '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig'
         )
-        logging.info('finished creating kubeproxy kubeconfigs')
 
+        template_vars = {
+            "INSTALL_DIR": self.config.get("general", "install_dir"),
+            "CLUSTER_CIDR": self.config.get("general", "cluster_cidr")
+        }
+
+        self.write_template(
+            "{CONFIG_DIR}/kube-proxy.yaml",
+            "{WORKER_DIR}/kube-proxy.yaml",
+            template_vars)
+
+        self.write_template(
+            "{TEMPLATE_DIR}/kube-proxy.service",
+            "{WORKER_DIR}/kube-proxy.service",
+            template_vars)
+
+        logging.info('finished creating kubeproxy kube, yaml, and service config')
 
     @timeit
     def create_kubecontrollermanager_kubeconfig(self):
@@ -1043,6 +1029,66 @@ class KubeBuild(object):
         logging.info("done creating admin kubeconfig for remote access.")
 
     @timeit
+    def create_cni_configs(self, node_type):
+        """create CNI configs using run-time node->pod cidr data."""
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
+
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(
+                prefix,
+                self.get_node_domain(),
+                node_index)
+
+            logging.info("Writing CNI configs for node %s.", hostname)
+            template_vars = {
+                "POD_CIDR": self.node_pod_cidrs[hostname]
+            }
+
+            self.write_template(
+                "{TEMPLATE_DIR}/cni/10-bridge.conf",
+                "{WORKER_DIR}/%s-10-bridge.conf" % hostname,
+                template_vars
+            )
+            logging.info("Done writing CNI configs for node %s.", hostname)
+
+    @timeit
+    def deploy_cni_configs(self, node_type):
+        """deploy cni configs."""
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
+
+        # TODO: do i need to restart anything? containerd?
+
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(
+                prefix,
+                self.get_node_domain(),
+                node_index)
+            logging.info("Deploying CNI configs to node %s.",  hostname)
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo mkdir -p /etc/cni/net.d')
+
+            self.deploy_file(
+                "{WORKER_DIR}/%s-10-bridge.conf" % hostname,
+                remote_user,
+                nodes[node_index],
+                "/etc/cni/net.d/10-bridge.conf")
+
+            self.deploy_file(
+                "{TEMPLATE_DIR}/cni/99-loopback.conf",
+                remote_user,
+                nodes[node_index],
+                "/etc/cni/net.d/")
+
+            logging.info("Finished deploying CNI configs to node %s.",  hostname)
+
+    @timeit
     def deploy_etcd(self, node_type):
         """deploy etcd certs, configs and restart service."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
@@ -1138,10 +1184,9 @@ class KubeBuild(object):
                      'apply -f {CONFIG_DIR}/%s' % cur_file))
         logging.info('finished applying RBAC cluster role/binding yaml.')
 
-
     @timeit
-    def bootstrap_node(self, node_type):
-        """bootstrap kubernetes workers."""
+    def create_kubelet_configs(self, node_type):
+        """create kubelet yaml and systemd configs for all nodes of node_type."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         remote_user = self.config.get(node_type, 'remote_user')
         prefix = self.config.get(node_type, 'prefix')
@@ -1151,135 +1196,257 @@ class KubeBuild(object):
                 prefix,
                 self.get_node_domain(),
                 node_index)
-            self.control_binaries(
-                hostname,
-                nodes[node_index],
-                remote_user,
-                'kube-proxy kubelet',
-                'stop')
-            self.install_node_binaries(
-                hostname,
-                nodes[node_index],
-                remote_user)
-            self.configure_node_kubeproxy(
-                hostname,
-                nodes[node_index],
-                remote_user)
-            self.configure_kubelet(
-                hostname,
-                nodes[node_index],
-                remote_user)
-            self.control_binaries(
-                hostname,
-                nodes[node_index],
-                remote_user,
-                'kube-proxy kubelet',
-                'start')
+            logging.info('creating kubelet config for %s.', hostname)
+            template_vars = {
+                'HOSTNAME': hostname,
+                'INSTALL_DIR': self.config.get('general', 'install_dir')
+            }
+            self.write_template(
+                '{CONFIG_DIR}/kubelet-config.yaml',
+                '{WORKER_DIR}/%s-kubelet-config.yaml' % hostname,
+                template_vars
+            )
+
+            self.write_template(
+                '{TEMPLATE_DIR}/kubelet.service',
+                '{WORKER_DIR}/%s-kubelet.service' % hostname,
+                template_vars)
+
+            logging.info('finished creating kubelet config for %s.', hostname)
 
     @timeit
-    def install_node_binaries(self, hostname, remote_ip, remote_user):
-        """install kubernetes and networking binaries on worker node."""
-        logging.info('bootstraping kubernetes worker node %s at %s.',
-                     hostname,
-                     remote_ip)
-
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'wget -q --show-progress --https-only --timestamping \
-            https://github.com/containernetworking/plugins/releases/download/v0.6.0/cni-plugins-amd64-v0.6.0.tgz')
-
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            '''sudo mkdir -p \
-            /opt/cni/bin \
-            /var/lib/kubelet \
-            /var/lib/kube-proxy \
-            /var/lib/kubernetes \
-            /var/run/kubernetes \
-            %(install_dir)s/bin''' % {'install_dir': self.config.get(
-                'general',
-                'install_dir')})
-
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'sudo tar -xvf cni-plugins-amd64-v0.6.0.tgz -C /opt/cni/bin/')
-
-        kube_bins = ['kubectl', 'kubelet', 'kube-proxy']
-        for cur_file in kube_bins:
-            self.deploy_file(
-                '{BIN_DIR}/%s' % cur_file,
-                remote_user,
-                remote_ip,
-                '%s/bin/' % self.config.get('general', 'install_dir'),
-                executable=True)
-
-    @timeit
-    def configure_kubelet(self, hostname, remote_ip, remote_user):
-        """create kubelet configuration for node and install it on node."""
-        logging.info('deploying kubelet to %s on %s.', hostname, remote_ip)
-
-
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'sudo mkdir -p /var/lib/kubelet/')
-
-        self.deploy_file(
-            '{WORKER_DIR}/%(hostname)s.kubeconfig' % {'hostname': hostname},
-            remote_user,
-            remote_ip,
-            '/var/lib/kubelet/kubeconfig')
-
+    def create_containerd_configs(self):
+        """create containerd configs."""
         template_vars = {
-            'CLUSTER_DNS': self.config.get('general',
-                                           'cluster_dns_ip_address'),
-            'HOSTNAME': hostname,
             'INSTALL_DIR': self.config.get('general', 'install_dir')
         }
-
+        logging.info('writing out containerd configs.')
         self.write_template(
-            '{TEMPLATE_DIR}/kubelet.service',
-            '{WORKER_DIR}/%(worker_hostname)s.kubelet.service' % {
-                'worker_hostname': hostname},
+            '{CONFIG_DIR}/containerd/containerd.service',
+            '{WORKER_DIR}/containerd.service',
             template_vars)
+        logging.info('finished writing out containerd configs.')
 
-        self.deploy_file(
-            '{WORKER_DIR}/%s.kubelet.service' % hostname,
-            remote_user,
-            remote_ip,
-            '/etc/systemd/system/kubelet.service')
 
     @timeit
-    def configure_node_kubeproxy(self, hostname, remote_ip, remote_user):
-        """create kubeproxy configuration for worker and install it on node."""
-        logging.info('deploying kube-proxy to %s on %s.', hostname, remote_ip)
+    def deploy_containerd(self, node_type):
+        """deploy containerd to all nodes of node_type."""
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
 
-        self.write_template(
-            '{TEMPLATE_DIR}/kube-proxy.service',
-            '{WORKER_DIR}/kube-proxy.service',
-            {'CLUSTER_CIDR': self.config.get('general', 'cluster_cidr'),
-             'INSTALL_DIR': self.config.get('general', 'install_dir')})
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(
+                prefix,
+                self.get_node_domain(),
+                node_index)
 
-        self.deploy_file(
-            '{WORKER_DIR}/kube-proxy.service',
-            remote_user,
-            remote_ip,
-            '/etc/systemd/system/')
+            logging.info('deploying containerd to %s.', hostname)
 
-        self.run_command_via_ssh(
-            remote_user,
-            remote_ip,
-            'sudo mkdir -p /var/lib/kube-proxy')
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo mkdir -p /opt/cni/bin/')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'containerd',
+                'stop')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'wget -O /tmp/containerd-1.2.0-rc.0.linux-amd64.tar.gz https://github.com/containerd/containerd/releases/download/v1.2.0-rc.0/containerd-1.2.0-rc.0.linux-amd64.tar.gz'
+            )
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo tar -xvzf /tmp/containerd-1.2.0-rc.0.linux-amd64.tar.gz -C /')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'wget -O /tmp/runc https://github.com/opencontainers/runc/releases/download/v1.0.0-rc5/runc.amd64'
+            )
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo mv /tmp/runc /usr/local/bin/')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'wget -O /tmp/runsc https://storage.googleapis.com/kubernetes-the-hard-way/runsc-50c283b9f56bb7200938d9e207355f05f79f0d17'
+            )
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo mv /tmp/runsc /usr/local/bin/')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'wget -O /tmp/crictl-v1.12.0-linux-amd64.tar.gz https://github.com/kubernetes-sigs/cri-tools/releases/download/v1.12.0/crictl-v1.12.0-linux-amd64.tar.gz'
+            )
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo tar -xvf /tmp/crictl-v1.12.0-linux-amd64.tar.gz -C /usr/local/bin/')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'wget -O /tmp/cni-plugins-amd64-v0.6.0.tgz https://github.com/containernetworking/plugins/releases/download/v0.6.0/cni-plugins-amd64-v0.6.0.tgz'
+            )
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo tar -xvf /tmp/cni-plugins-amd64-v0.6.0.tgz -C /opt/cni/bin/')
+
+            self.deploy_file(
+                '{WORKER_DIR}/containerd.service',
+                remote_user,
+                nodes[node_index],
+                '/etc/systemd/system/containerd.service')
+
+            self.deploy_file(
+                '{CONFIG_DIR}/containerd/config.toml',
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/conf/')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'containerd',
+                'start')
+            logging.info('finished deploying containerd to %s.', hostname)
 
 
-        self.deploy_file(
-            '{PROXY_DIR}/kube-proxy.kubeconfig',
-            remote_user,
-            remote_ip,
-            '/var/lib/kube-proxy/kubeconfig')
+    @timeit
+    def deploy_kubeproxy(self, node_type):
+        """deploy kubeproxy to all nodes of node_type."""
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
+
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(
+                prefix,
+                self.get_node_domain(),
+                node_index)
+
+            logging.info("beginning deploy of kubeproxy to %s.", hostname)
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'kube-proxy',
+                'stop')
+
+            self.deploy_file(
+                '{BIN_DIR}/kube-proxy',
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/bin/')
+
+            self.deploy_file(
+                '{PROXY_DIR}/kube-proxy.kubeconfig',
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/conf/kube-proxy.kubeconfig')
+
+            self.deploy_file(
+                '{WORKER_DIR}/kube-proxy.service',
+                remote_user,
+                nodes[node_index],
+                '/etc/systemd/system/kube-proxy.service')
+
+            self.deploy_file(
+                '{WORKER_DIR}/kube-proxy.yaml',
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/conf/')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'kube-proxy',
+                'start')
+
+            logging.info("finishing deploy of kubeproxy to %s.", hostname)
+
+    @timeit
+    def deploy_kubelet(self, node_type):
+        """deploy kubelet to all nodes of node_type."""
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        remote_user = self.config.get(node_type, 'remote_user')
+        prefix = self.config.get(node_type, 'prefix')
+
+        for node_index in range(0, self.get_node_count(node_type)):
+            hostname = helpers.hostname_with_index(
+                prefix,
+                self.get_node_domain(),
+                node_index)
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'kubelet',
+                'stop')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo mkdir -p {INSTALL_DIR}/bin {INSTALL_DIR}/conf')
+
+            self.deploy_file(
+                '{BIN_DIR}/kubelet',
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/bin/')
+
+            self.deploy_file(
+                '{WORKER_DIR}/%s.kubeconfig' % hostname,
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/conf/kubelet.kubeconfig')
+
+            self.deploy_file(
+                '{WORKER_DIR}/%s-kubelet-config.yaml' % hostname,
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/conf/%s-kubelet-config.yaml' % hostname)
+
+            self.deploy_file(
+                '{WORKER_DIR}/%s-kubelet.service' % hostname,
+                remote_user,
+                nodes[node_index],
+                '/etc/systemd/system/kubelet.service')
+
+            self.deploy_file(
+                '{WORKER_DIR}/%s-kubelet.pem' % hostname,
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/certs/')
+
+            self.deploy_file(
+                '{WORKER_DIR}/%s-kubelet-key.pem' % hostname,
+                remote_user,
+                nodes[node_index],
+                '{INSTALL_DIR}/certs/')
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'kubelet',
+                'start')
 
     @timeit
     def create_and_deploy_kube_dns(self):

@@ -6,12 +6,12 @@ authentication:
   webhook:
     enabled: true
   x509:
-    clientCAFile: "{{CERTS_DIR}}/ca.pem"
+    clientCAFile: "{{INSTALL_DIR}}/certs/ca.pem"
 authorization:
   mode: Webhook
 clusterDomain: "cluster.local"
 clusterDNS:
   - "{{CLUSTER_DNS}}"
 runtimeRequestTimeout: "15m"
-tlsCertFile: "{{CERTS_DIR}}/{{HOSTNAME}}-kubelet.pem"
-tlsPrivateKeyFile: "{{CERTS_DIR}}/{{HOSTNAME}}-kubelet-key.pem"
+tlsCertFile: "{{INSTALL_DIR}}/certs/{{HOSTNAME}}-kubelet.pem"
+tlsPrivateKeyFile: "{{INSTALL_DIR}}/certs/{{HOSTNAME}}-kubelet-key.pem"

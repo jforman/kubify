@@ -7,12 +7,12 @@ Requires=containerd.service
 [Service]
 ExecStart={{INSTALL_DIR}}/bin/kubelet \
   --allow-privileged=true \
-  --config={{KUBE_CONFIG_DIR}}/{{HOSTNAME}}.kubelet-config.yaml \
+  --config={{ INSTALL_DIR}}/conf/{{HOSTNAME}}-kubelet-config.yaml \
   --container-runtime=remote \
   --container-runtime-endpoint=unix:///var/run/containerd/containerd.sock \
   --hostname-override {{HOSTNAME}} \
   --image-pull-progress-deadline=2m \
-  --kubeconfig={{KUBE_CONFIG_DIR}}/kubelet.kubeconfig \
+  --kubeconfig={{ INSTALL_DIR}}/conf/kubelet.kubeconfig \
   --network-plugin=cni \
   --register-node=true \
   --resolv-conf /run/systemd/resolve/resolv.conf \

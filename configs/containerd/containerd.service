@@ -5,7 +5,7 @@ After=network.target
 
 [Service]
 ExecStartPre=/sbin/modprobe overlay
-ExecStart=/bin/containerd
+ExecStart=/bin/containerd --config {{INSTALL_DIR}}/conf/config.toml
 Restart=always
 RestartSec=5
 Delegate=yes
