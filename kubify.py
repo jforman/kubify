@@ -206,18 +206,7 @@ class KubeBuild(object):
         """main build sequencer function."""
         self.create_output_dirs()
         self.download_tools()
-        self.deploy_node_certs('controller')
-        self.deploy_node_certs('worker')
-        self.deploy_encryption_configs()
 
-        self.bootstrap_control_plane_rbac()
-        self.bootstrap_node('controller')
-        self.bootstrap_node('worker')
-
-        self.deploy_flannel()
-        self.apply_taints_and_labels('controller')
-        self.create_and_deploy_kube_dns()
-        self.deploy_dashboard()
         if 'create_certs' in self.args.action:
             self.create_ca_cert_private_key()
             self.create_etcd_certs('controller')
@@ -323,7 +312,7 @@ class KubeBuild(object):
             logging.fatal('output directory already exists, but you chose not '
                           'to clear it out first. are old configs still '
                           'present that you still want to save?')
-            sys.exit(1)
+
 
         if os.path.exists(self.args.output_dir):
             if self.args.dry_run:
