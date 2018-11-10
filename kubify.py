@@ -53,7 +53,7 @@ class KubeBuild(object):
     def get_etcd_discovery_url(self, cluster_size):
         """get the etcd discovery url for cluster size."""
         logging.info("Requesting new etcd discover URL. Cluster size: %s.",
-            cluster_size)
+                     cluster_size)
         f = urllib.urlopen("https://discovery.etcd.io/new?size=%s" % cluster_size)
         disc_url = f.read()
         logging.info("Retrieved discovery URL: %s", disc_url)
@@ -308,10 +308,12 @@ class KubeBuild(object):
         """create the directory structure for storing create files."""
         subdirs = ['addon', 'addon/dashboard', 'admin', 'api_server', 'bin', 'ca', 'encryption',
                    'etcd', 'proxy', 'tmp', 'workers']
+        # TODO: add force argument here to ignore the fact that it's not empty
 
         if all([not self.args.clear_output_dir,
                 os.path.exists(self.args.output_dir),
                 not self.args.dry_run]):
+
             logging.fatal('output directory already exists, but you chose not '
                           'to clear it out first. are old configs still '
                           'present that you still want to save?')
@@ -360,8 +362,7 @@ class KubeBuild(object):
             os.path.join(self.kube_release_dir, 'kube-scheduler'):
             self.translate_path('{BIN_DIR}/kube-scheduler'),
             'https://github.com/etcd-io/etcd/releases/download/v%(ver)s/etcd-v%(ver)s-linux-amd64.tar.gz' % {
-            'ver': self.config.get('general', 'etcd_version')}: self.translate_path('{BIN_DIR}/etcd-v%s.tar.gz' % self.config.get('general', 'etcd_version'))
-
+            'ver': self.config.get('general', 'etcd_version')}: self.translate_path('{BIN_DIR}/etcd-v%s.tar.gz' % self.config.get('general', 'etcd_version')),
         }
 
         logging.info("downloading new set of binary tools")
@@ -376,9 +377,7 @@ class KubeBuild(object):
             urllib.urlretrieve(remotef, localf)
             os.chmod(localf, 0775)
 
-        self.run_command(
-            'tar -xvzf {BIN_DIR}/etcd-v%s.tar.gz -C {BIN_DIR}' % self.config.get('general', 'etcd_version'))
-
+        self.run_command('tar -xvzf {BIN_DIR}/etcd-v%s.tar.gz -C {BIN_DIR}' % self.config.get('general', 'etcd_version'))
         logging.info("done downloading tools")
 
     @timeit
@@ -576,10 +575,6 @@ class KubeBuild(object):
     def create_kube_controller_manager_cert(self):
         """create controller manager certificate"""
         logging.info("beginning to create controller manager certificate")
-    def deploy_dashboard(self):
-        """create dashboard certificate and deploy service/pods/etc."""
-        logging.info("beginning to deploy dashboard")
-
         self.run_command(
             cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
                  "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
@@ -609,7 +604,6 @@ class KubeBuild(object):
                  '{API_SERVER_DIR}/service-account')
             )
         logging.info("finished creating controller manager certificate")
-
 
     @timeit
     def create_encryption_configs(self):
@@ -990,7 +984,7 @@ class KubeBuild(object):
              "--certificate-authority={CA_DIR}/ca.pem "
              "--embed-certs=true "
              "--server=https://%(api_server_ip_address)s "
-             "--kubeconfig={ADMIN_DIR}/kubeconfig " % {
+             "--kubeconfig={ADMIN_DIR}/admin.kubeconfig " % {
                  'cluster_name': self.config.get('general', 'cluster_name'),
                  'api_server_ip_address': self.config.get('general',
                                                           'api_server_ip_address')
@@ -1086,7 +1080,6 @@ class KubeBuild(object):
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         remote_user = self.config.get(node_type, 'remote_user')
         prefix = self.config.get(node_type, 'prefix')
-
 
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
