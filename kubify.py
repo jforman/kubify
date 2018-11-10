@@ -259,6 +259,7 @@ class KubeBuild(object):
             self.deploy_kubeproxy('worker')
             self.deploy_kuberouter()
 
+            self.apply_taints_and_labels('controller')
             self.deploy_coredns()
 
     @timeit
