@@ -1572,7 +1572,7 @@ def main():
     parser.add_argument('--kube_ver',
                         dest='kube_ver',
                         help='kubernetes version',
-                        default='1.9.0')
+                        default='1.12.0')
     parser.add_argument('--output_dir',
                         dest='output_dir',
                         required=True,
