@@ -1199,7 +1199,8 @@ class KubeBuild(object):
             logging.info('creating kubelet config for %s.', hostname)
             template_vars = {
                 'HOSTNAME': hostname,
-                'INSTALL_DIR': self.config.get('general', 'install_dir')
+                'INSTALL_DIR': self.config.get('general', 'install_dir'),
+                'CLUSTER_DNS': self.config.get('general', 'cluster_dns_ip_address')
             }
             self.write_template(
                 '{CONFIG_DIR}/kubelet-config.yaml',
