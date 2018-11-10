@@ -21,6 +21,12 @@ rules:
   verbs:
   - list
   - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1beta1
 kind: ClusterRoleBinding
@@ -56,6 +62,7 @@ data:
         }
         proxy . /etc/resolv.conf
         cache 30
+        loop
         reload
         loadbalance
     }
@@ -88,9 +95,11 @@ spec:
           effect: NoSchedule
         - key: "CriticalAddonsOnly"
           operator: "Exists"
+      nodeSelector:
+        beta.kubernetes.io/os: linux
       containers:
       - name: coredns
-        image: coredns/coredns:1.2.4
+        image: coredns/coredns:1.2.6
         imagePullPolicy: IfNotPresent
         resources:
           limits:

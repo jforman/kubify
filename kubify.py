@@ -234,6 +234,7 @@ class KubeBuild(object):
             self.create_containerd_configs()
             self.create_kubelet_configs('controller')
             self.create_kubelet_configs('worker')
+            self.create_coredns_config()
 
         if 'deploy' in self.args.action:
             self.deploy_etcd('controller')
@@ -258,6 +259,7 @@ class KubeBuild(object):
             self.deploy_kubeproxy('worker')
             self.deploy_kuberouter()
 
+            self.deploy_coredns()
 
     @timeit
     def run_command(self, cmd, return_output=False,
@@ -1449,24 +1451,34 @@ class KubeBuild(object):
                 'start')
 
     @timeit
-    def create_and_deploy_kube_dns(self):
-        """create kube-dns add-on yaml and deploy it to cluster."""
+    def create_coredns_config(self):
+        """create coredns yaml config."""
 
-        logging.info('generating and applying kube-dns service template')
+        logging.info('creating coredns service config')
 
         self.write_template(
-            '{TEMPLATE_DIR}/kube-dns.yaml',
-            '{ADDON_DIR}/kube-dns.yaml',
+            '{TEMPLATE_DIR}/core-dns.yaml',
+            '{ADDON_DIR}/core-dns.yaml',
             {'CLUSTER_DNS_IP_ADDRESS': self.config.get(
                 'general',
                 'cluster_dns_ip_address')}
         )
 
-        self.run_command(
-            ('{BIN_DIR}/kubectl apply -f {ADDON_DIR}/kube-dns.yaml '
-             '--kubeconfig={ADMIN_DIR}/kubeconfig '))
+        logging.info('finished creating coredns service config.')
 
-        logging.info('finished applying kube-dns service template.')
+
+    @timeit
+    def deploy_coredns(self):
+        """deploy coredns yaml config."""
+
+        logging.info('deploying coredns')
+
+        self.run_command(
+            cmd=('{BIN_DIR}/kubectl --kubeconfig {ADMIN_DIR}/admin.kubeconfig '
+                 'apply -f {ADDON_DIR}/core-dns.yaml'))
+
+        logging.info('finished deploying coredns')
+
 
     @timeit
     def control_binaries(self, hostname, remote_ip, remote_user,
