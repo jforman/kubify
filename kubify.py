@@ -306,31 +306,16 @@ class KubeBuild(object):
     @timeit
     def create_output_dirs(self):
         """create the directory structure for storing create files."""
-        subdirs = ['addon', 'addon/dashboard', 'admin', 'api_server', 'bin', 'ca', 'encryption',
-                   'etcd', 'proxy', 'tmp', 'workers']
-        # TODO: add force argument here to ignore the fact that it's not empty
-
-        if all([not self.args.clear_output_dir,
-                os.path.exists(self.args.output_dir),
-                not self.args.dry_run]):
-
-            logging.fatal('output directory already exists, but you chose not '
-                          'to clear it out first. are old configs still '
-                          'present that you still want to save?')
-
-
-        if os.path.exists(self.args.output_dir):
+        subdirs = ['', 'addon', 'addon/dashboard', 'admin', 'api_server',
+                   'bin', 'ca', 'encryption', 'etcd', 'proxy', 'tmp', 'workers']
+        if self.args.clear_output_dir:
             if self.args.dry_run:
-                logging.debug('DRYRUN: would have deleted %s.',
-                              self.args.output_dir)
+                logging.info("DRYRUN: Would have deleted %s.",
+                             self.args.output_dir)
             else:
+                logging.info("Deleting directory %s.",
+                             self.args.output_dir)
                 shutil.rmtree(self.args.output_dir)
-
-        if self.args.dry_run:
-            logging.debug('DRYRUN: would have created %s.',
-                          self.args.output_dir)
-        else:
-            os.makedirs(self.args.output_dir)
 
         for current_dir in subdirs:
             if self.args.dry_run:
@@ -338,8 +323,10 @@ class KubeBuild(object):
                               os.path.join(self.args.output_dir,
                                            current_dir))
             else:
-                os.makedirs(os.path.join(self.args.output_dir,
-                                         current_dir))
+                dest_dir = os.path.join(self.args.output_dir,current_dir)
+                if not os.path.exists(dest_dir):
+                    logging.debug("Creating directory %s.", dest_dir)
+                    os.makedirs(dest_dir)
 
     @timeit
     def download_tools(self):
