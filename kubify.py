@@ -1512,12 +1512,12 @@ class KubeBuild(object):
             logging.debug('applying node taint to %s.', hostname)
 
             self.run_command(
-                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
+                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
                      'taint nodes --overwrite %(hostname)s '
                      'node-role.kubernetes.io/master='':NoSchedule' % {
                          'hostname': hostname}))
             self.run_command(
-                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/kubeconfig '
+                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
                      'label nodes --overwrite %(hostname)s '
                      'role=controller' % { 'hostname': hostname}))
 
