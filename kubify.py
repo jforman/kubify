@@ -1266,7 +1266,12 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
-                'sudo chmod +x /usr/local/bin/runc /usr/local/bin/runsc')
+                'sudo chmod +x /usr/local/bin/runc')
+
+            self.run_command_via_ssh(
+                remote_user,
+                nodes[node_index],
+                'sudo chmod +x /usr/local/bin/runsc')
 
             self.run_command_via_ssh(
                 remote_user,
