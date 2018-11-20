@@ -257,9 +257,10 @@ class KubeBuild(object):
 
             self.deploy_kubeproxy('controller')
             self.deploy_kubeproxy('worker')
-            self.deploy_kuberouter()
-
             self.apply_taints_and_labels('controller')
+
+            # Deploy pods critical to Kubernetes cluster operation.
+            self.deploy_kuberouter()
             self.deploy_coredns()
 
     @timeit
@@ -1519,7 +1520,7 @@ class KubeBuild(object):
             self.run_command(
                 cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
                      'taint nodes --overwrite %(hostname)s '
-                     'node-role.kubernetes.io/master='':NoSchedule' % {
+                     'key=value:NoSchedule' % {
                          'hostname': hostname}))
             self.run_command(
                 cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '

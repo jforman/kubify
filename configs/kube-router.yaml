@@ -63,9 +63,10 @@ spec:
       tolerations:
       - key: CriticalAddonsOnly
         operator: Exists
-      - effect: NoSchedule
-        key: node-role.kubernetes.io/master
-        operator: Exists
+      - key: "key"
+        operator: "Equal"
+        value: "value"
+        effect: "NoSchedule"
 ---
 apiVersion: v1
 kind: ServiceAccount
