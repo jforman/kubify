@@ -1043,6 +1043,13 @@ class KubeBuild(object):
                 node_index)
             logging.info("Deploying CNI configs to node %s.",  hostname)
 
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'containerd',
+                'stop')
+
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
@@ -1059,6 +1066,13 @@ class KubeBuild(object):
                 remote_user,
                 nodes[node_index],
                 "/etc/cni/net.d/")
+
+            self.control_binaries(
+                hostname,
+                nodes[node_index],
+                remote_user,
+                'containerd',
+                'stop')
 
             logging.info("Finished deploying CNI configs to node %s.",  hostname)
 
