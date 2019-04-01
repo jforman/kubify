@@ -1,8 +1,6 @@
 [Unit]
 Description=Kubernetes Kubelet
 Documentation=https://github.com/kubernetes/kubernetes
-After=containerd.service
-Requires=containerd.service
 
 [Service]
 ExecStart={{INSTALL_DIR}}/bin/kubelet \
