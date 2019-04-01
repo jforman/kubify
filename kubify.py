@@ -1041,8 +1041,6 @@ class KubeBuild(object):
         remote_user = self.config.get(node_type, 'remote_user')
         prefix = self.config.get(node_type, 'prefix')
 
-        # TODO: do i need to restart anything? containerd?
-
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
                 prefix,
@@ -1079,7 +1077,7 @@ class KubeBuild(object):
                 nodes[node_index],
                 remote_user,
                 'containerd',
-                'stop')
+                'start')
 
             logging.info("Finished deploying CNI configs to node %s.",  hostname)
 
