@@ -1019,9 +1019,13 @@ class KubeBuild(object):
                 node_index)
 
             logging.info("Writing CNI configs for node %s.", hostname)
-            template_vars = {
-                "POD_CIDR": self.node_pod_cidrs[hostname]
-            }
+            try:
+                template_vars = {
+                    "POD_CIDR": self.node_pod_cidrs[hostname]
+                }
+            except KeyError:
+                logging.fatal("Unable to assign POD_CIDR for host %s. "
+                              "Current POD_CIDR dict: %s.", hostname, self.node_pod_cidrs)
 
             self.write_template(
                 "{TEMPLATE_DIR}/cni/10-bridge.conf",
