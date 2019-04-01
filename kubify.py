@@ -205,7 +205,9 @@ class KubeBuild(object):
     def build(self):
         """main build sequencer function."""
         self.create_output_dirs()
-        self.download_tools()
+
+        if not self.args.skip_tools_download:
+            self.download_tools()
 
         if 'create_certs' in self.args.action:
             self.create_ca_cert_private_key()
@@ -1578,6 +1580,9 @@ def main():
                         required=True,
                         help=('base directory where generated configs '
                               'will be stored.'))
+    parser.add_argument('--skip_tools_download',
+                        action='store_true',
+                        help=('Skip downloading the Kubernetes and cfssl binaries'))
 
     args = parser.parse_args()
 
