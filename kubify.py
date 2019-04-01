@@ -286,6 +286,7 @@ class KubeBuild(object):
             except subprocess.CalledProcessError as err:
                 logging.fatal("Error in running %s. Output: %s",
                               command_list, err.output)
+                output = err.output
                 if ignore_errors:
                     logging.info('ERROR IGNORED, continuing on.')
                 else:
@@ -1490,18 +1491,22 @@ class KubeBuild(object):
 
         if action == "stop":
             logging.info('stopping services %s on %s.', services, hostname)
-            stop_output = self.run_command_via_ssh(
+
+            status_output = self.run_command_via_ssh(
                 remote_user,
                 remote_ip,
-                'sudo systemctl stop %s' % services,
+                'sudo systemctl status %s' % services,
                 ignore_errors=True,
                 return_output=True)
 
-            if 'not loaded.' in stop_output:
-                logging.info("Service %s not found. Service does not exist yet "
-                             "so not an error.", services)
+            logging.debug("STATUS OUTPUT: %s", status_output)
+            if 'could not be found' in status_output:
+                logging.info("Service %s could not be found. Skipping stop.", services)
             else:
-                logging.fatal("Unable to stop service %s.", services)
+                self.run_command_via_ssh(
+                    remote_user,
+                    remote_ip,
+                    'sudo systemctl stop %s' % services)
 
         if action == "start":
             logging.info('starting binaries on %s.', hostname)
