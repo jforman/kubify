@@ -34,6 +34,7 @@ Below is an example kubify.conf config file, with a minimum configuration specif
 # Kubify Configuration File
 # Cluster CIDR: IP range used by inter-pod inter-cluster transit.
 # Service CIDR: IP range used by Services on the cluster.
+# Create encryption key: head -c 32 /dev/urandom | base64
 
 [general]
 api_server_ip_address=10.10.2.119
@@ -44,6 +45,8 @@ ssl_certs_dir=/etc/ssl/certs/
 cluster_cidr=10.244.0.0/16
 service_cidr=10.122.0.0/16
 cluster_dns_ip_address=10.122.0.10
+etcd_version=3.3.9
+encryption_key=YOUSHOULDCHANGETHISSEEHOWTOABOVE
 
 [controller]
 remote_user=core

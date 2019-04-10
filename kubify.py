@@ -604,7 +604,7 @@ class KubeBuild(object):
         self.write_template(
             '{TEMPLATE_DIR}/encryption-config.yaml',
             '{ENCRYPTION_DIR}/encryption-config.yaml',
-            {'key': base64.b64encode(os.urandom(32))}
+            {'key': self.config.get('general', 'encryption_key')}
         )
 
         logging.info('finished creating Kubernetes encryptionconfig file.')
