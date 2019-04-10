@@ -10,12 +10,11 @@ ExecStart={{INSTALL_DIR}}/bin/kubelet \
   --container-runtime-endpoint=unix:///var/run/containerd/containerd.sock \
   --hostname-override {{HOSTNAME}} \
   --image-pull-progress-deadline=2m \
-  --kubeconfig={{ INSTALL_DIR}}/conf/kubelet.kubeconfig \
+  --kubeconfig={{INSTALL_DIR}}/conf/kubelet.kubeconfig \
   --network-plugin=cni \
   --register-node=true \
-  --resolv-conf /run/systemd/resolve/resolv.conf \
   --v=2
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]
