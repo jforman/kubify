@@ -97,7 +97,10 @@ class KubeBuild(object):
             '{ADMIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'admin'),
             '{API_SERVER_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
                                              'api_server'),
-            '{BIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'bin'),
+            '{BIN_DIR}': os.path.join(
+                path_dict['{OUTPUT_DIR}'],
+                self.args.kube_ver,
+                'bin'),
             '{CA_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'ca'),
             '{CONFIG_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'], 'configs'),
             '{ENCRYPTION_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
@@ -319,7 +322,8 @@ class KubeBuild(object):
             else:
                 logging.info("Deleting directory %s.",
                              self.args.output_dir)
-                shutil.rmtree(self.args.output_dir)
+                if os.path.exists(self.args.output_dir):
+                    shutil.rmtree(self.args.output_dir)
 
         for current_dir in subdirs:
             if self.args.dry_run:
@@ -355,6 +359,9 @@ class KubeBuild(object):
             'https://github.com/etcd-io/etcd/releases/download/v%(ver)s/etcd-v%(ver)s-linux-amd64.tar.gz' % {
             'ver': self.config.get('general', 'etcd_version')}: self.translate_path('{BIN_DIR}/etcd-v%s.tar.gz' % self.config.get('general', 'etcd_version')),
         }
+
+        if not os.path.exists(self.translate_path('{BIN_DIR}')):
+            os.makedirs(self.translate_path('{BIN_DIR}'))
 
         logging.info("downloading new set of binary tools")
         for remotef, localf in files_to_get.iteritems():
@@ -1563,6 +1570,7 @@ def main():
         description='Install Kubernetes, the hard way.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--action",
+                        required=True,
                         choices=["create_certs", "create_configs", "deploy"],
                         action='append')
     parser.add_argument('--clear_output_dir',
@@ -1571,6 +1579,7 @@ def main():
                         help=('delete the output directory before '
                               ' generating configs'))
     parser.add_argument('--config',
+                        required=True,
                         help='kubify config file.')
     parser.add_argument('--dry_run',
                         action='store_true',
