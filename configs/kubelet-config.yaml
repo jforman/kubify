@@ -12,7 +12,6 @@ authorization:
 clusterDomain: "cluster.local"
 clusterDNS:
   - "{{CLUSTER_DNS}}"
-ResolverConfig: "/run/systemd/resolve/resolv.conf"
 RuntimeRequestTimeout: "15m"
 tlsCertFile: "{{INSTALL_DIR}}/certs/{{HOSTNAME}}-kubelet.pem"
 tlsPrivateKeyFile: "{{INSTALL_DIR}}/certs/{{HOSTNAME}}-kubelet-key.pem"
