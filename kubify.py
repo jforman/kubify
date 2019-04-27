@@ -246,10 +246,10 @@ class KubeBuild(object):
             self.deploy_etcd('worker')
             self.deploy_control_plane()
             self.deploy_control_plane_rbac()
-            self.deploy_containerd('controller')
-            self.deploy_containerd('worker')
             self.deploy_kubelet('controller')
             self.deploy_kubelet('worker')
+            self.deploy_containerd('controller')
+            self.deploy_containerd('worker')
 
             # We have to deploy the kubelets first
             # before we can determine the POD CIDR
@@ -263,6 +263,9 @@ class KubeBuild(object):
             self.deploy_kubeproxy('controller')
             self.deploy_kubeproxy('worker')
             self.apply_taints_and_labels('controller')
+
+            # Deploy Pod Security Policies and roles
+            self.deploy_pod_security_policies()
 
             # Deploy pods critical to Kubernetes cluster operation.
             self.deploy_kuberouter()
@@ -1558,6 +1561,19 @@ class KubeBuild(object):
                      'role=controller' % { 'hostname': hostname}))
 
     @timeit
+    def deploy_pod_security_policies(self):
+        """deploy pod security policies and roles."""
+        files = ['pod-security-policies.yaml',
+                 'pod-security-policies-roles.yaml']
+
+        for cur_file in files:
+            logging.info('applying pod security policies: %s', cur_file)
+            self.run_command(
+                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
+                     'apply -f {CONFIG_DIR}/%s' % cur_file))
+        logging.info('finished applying pod security policies.')
+
+    @timeit
     def deploy_kuberouter(self):
         """deploy kube-router."""
         self.run_command(
@@ -1590,7 +1606,7 @@ def main():
     parser.add_argument('--kube_ver',
                         dest='kube_ver',
                         help='kubernetes version',
-                        default='1.12.0')
+                        default='1.14.0')
     parser.add_argument('--output_dir',
                         dest='output_dir',
                         required=True,

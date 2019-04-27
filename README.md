@@ -9,22 +9,29 @@ Why not the public cloud? Mostly because of cost. I've already got a beefy VM se
 ## Script Usage
 
 ```bash
-usage: kubify.py [-h] [--clear_output_dir] [--config CONFIG] [--dry_run]
-                 [--debug] [--kube_ver KUBE_VER] --output_dir OUTPUT_DIR
+usage: kubify.py [-h] --action {create_certs,create_configs,deploy}
+                 [--clear_output_dir] --config CONFIG [--dry_run] [--debug]
+                 [--kube_ver KUBE_VER] --output_dir OUTPUT_DIR
+                 [--skip_tools_download]
 
 Install Kubernetes, the hard way.
 
 optional arguments:
   -h, --help            show this help message and exit
+  --action {create_certs,create_configs,deploy}
   --clear_output_dir    delete the output directory before generating configs
                         (default: False)
   --config CONFIG       kubify config file. (default: None)
   --dry_run             dont actually do anything. (default: False)
   --debug               enable debug-level logging. (default: False)
-  --kube_ver KUBE_VER   kubernetes version (default: 1.9.0)
+  --kube_ver KUBE_VER   kubernetes version (default: 1.14.0)
   --output_dir OUTPUT_DIR
                         base directory where generated configs will be stored.
                         (default: None)
+  --skip_tools_download
+                        Skip downloading the Kubernetes and cfssl binaries
+                        (default: False)
+
 ```
 ## Configuration File
 
@@ -49,13 +56,13 @@ etcd_version=3.3.9
 encryption_key=YOUSHOULDCHANGETHISSEEHOWTOABOVE
 
 [controller]
-remote_user=core
-prefix=corea-controller
+remote_user=ubuntu
+prefix=proda-controller
 ip_addresses=10.10.0.125,10.10.0.126,10.10.0.127
 
 [worker]
-remote_user=core
-prefix=corea-worker
+remote_user=ubuntu
+prefix=proda-worker
 ip_addresses=10.10.0.110,10.10.0.111,10.10.0.112,10.10.0.113,10.10.0.114
 ```
 

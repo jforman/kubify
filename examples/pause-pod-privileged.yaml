@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pause-pod
+spec:
+  containers:
+    - name: pause
+      image: k8s.gcr.io/pause
+      securityContext:
+        privileged: true

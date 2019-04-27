@@ -1,0 +1,78 @@
+# Cluster role which grants access to the default pod security policy
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: 100-psp
+rules:
+- apiGroups:
+  - policy
+  resourceNames:
+  - 100-restricted
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+---
+# Cluster role binding for default pod security policy granting all authenticated users access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: 100-psp-system:authenticated
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: 100-psp
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:authenticated
+---
+# Cluster role binding for default pod security policy granting
+# replicaset-controller access to the 999-privileged psp
+# GET WORKING
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: 999-psp-serviceaccount:replicaset-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: 999-psp
+subjects:
+- kind: ServiceAccount
+  name: replicaset-controller
+  namespace: kube-system
+---
+# Cluster role which grants access to the default pod security policy
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: 999-psp
+rules:
+- apiGroups:
+  - policy
+  resourceNames:
+  - 999-privileged
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+---
+# Cluster role binding for default pod security policy granting all authenticated users access
+# The system:nodes apiGroup is needed to allow kube-router to run.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: 999-privileged
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: 999-psp
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:authenticated
+- apiGroup: rbac.authorization.k8s.io  
+  kind: Group
+  name: system:nodes
+  

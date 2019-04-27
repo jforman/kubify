@@ -1,6 +1,6 @@
 ---
 # https://github.com/cloudnativelabs/kube-router/blob/master/daemonset/kubeadm-kuberouter-all-features.yaml
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   labels:
@@ -9,6 +9,10 @@ metadata:
   name: kube-router
   namespace: kube-system
 spec:
+  selector:
+    matchLabels:
+      k8s-app: kube-router
+      tier: node
   template:
     metadata:
       labels:
@@ -76,10 +80,18 @@ metadata:
 ---
 apiVersion: v1
 kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1beta1
+apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: kube-router
 rules:
+- apiGroups:
+  - policy
+  resources:
+  - podsecuritypolicies
+  resourceNames:
+  - 999-privilged
+  verbs:
+  - use
 - apiGroups:
   - ""
   resources:
@@ -100,19 +112,10 @@ rules:
   - list
   - get
   - watch
-- apiGroups:
-  - extensions
-  resources:
-  - networkpolicies
-  verbs:
-  - get
-  - list
-  - watch
-
 ---
 apiVersion: v1
 kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1beta1
+apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: kube-router
 roleRef:
