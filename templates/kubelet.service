@@ -12,7 +12,6 @@ ExecStart={{INSTALL_DIR}}/bin/kubelet \
   --kubeconfig={{INSTALL_DIR}}/conf/kubelet.kubeconfig \
   --network-plugin=cni \
   --register-node=true \
-  --resolv-conf=/run/systemd/resolve/resolv.conf \
   --v=2
 Restart=always
 RestartSec=5
