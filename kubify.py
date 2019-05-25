@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse
 import base64
-import ConfigParser
+import configparser
 import json
 import logging
 import os
@@ -11,7 +11,7 @@ import string
 import subprocess
 import sys
 import time
-import urllib
+import urllib.request, urllib.parse, urllib.error
 
 import helpers
 
@@ -22,27 +22,28 @@ class KubeBuild(object):
     def __init__(self, cli_args):
         self.args = cli_args
         self.checkout_path = os.path.dirname(os.path.realpath(sys.argv[0]))
-        self.kube_release_dir = ('https://storage.googleapis.com/'
-                                 'kubernetes-release/release/v%(ver)s'
-                                 '/bin/linux/amd64' % {
-                                     'ver': self.args.kube_ver,
-                                 })
+        self.kube_release_dir = (f'https://storage.googleapis.com/'
+                                 f'kubernetes-release/release/v{self.args.kube_ver}'
+                                 f'/bin/linux/amd64')
 
-        self.config = ConfigParser.SafeConfigParser()
+        self.config = configparser.ConfigParser()
         self.config.read(self.args.config)
         self.node_pod_cidrs = {}
+        # Directories pertaining to checkout and output directory
+        # configurations.
+        self.kubify_dirs = {}
+        self.set_k8s_paths()
 
-        logging.debug('Checkout Path: %s, Output Dir: %s',
-                      self.checkout_path, self.args.output_dir)
+        logging.debug(f'Checkout Path: {self.checkout_path}, Output Dir: {self.args.output_dir}')
 
     def timeit(method):
         def timed(*args, **kwargs):
             start_time = time.time()
             result = method(*args, **kwargs)
             end_time = time.time()
+            elapsed_time = end_time - start_time
 
-            logging.debug('execution info: method: %s, elapsed: %0.3fs.',
-                          method.__name__, (end_time - start_time))
+            logging.debug(f'execution info: method: {method.__name__}, elapsed: {elapsed_time:0.3f}s.')
             return result
         return timed
 
@@ -52,11 +53,10 @@ class KubeBuild(object):
 
     def get_etcd_discovery_url(self, cluster_size):
         """get the etcd discovery url for cluster size."""
-        logging.info("Requesting new etcd discover URL. Cluster size: %s.",
-                     cluster_size)
-        f = urllib.urlopen("https://discovery.etcd.io/new?size=%s" % cluster_size)
-        disc_url = f.read()
-        logging.info("Retrieved discovery URL: %s", disc_url)
+        logging.info(f"Requesting new etcd discover URL. Cluster size: {cluster_size}.")
+        f = urllib.request.urlopen(f"https://discovery.etcd.io/new?size={cluster_size}")
+        disc_url = f.read().decode()
+        logging.info(f"Retrieved discovery URL: {disc_url}")
         return disc_url
 
     def get_node_ip_addresses(self, node_type):
@@ -70,57 +70,67 @@ class KubeBuild(object):
     def set_node_pod_cidrs(self):
         """create dictionary of node->pod CIDR mappings."""
         node_output = self.run_command(
-            ("{BIN_DIR}/kubectl "
-             "--kubeconfig {ADMIN_DIR}/admin.kubeconfig "
+            (f"{self.kubify_dirs['BIN_DIR']}/kubectl "
+             f"--kubeconfig {self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig "
              "get nodes -o json"),
             return_output=True)
+        logging.debug(f"node_output: {node_output}")
+        if self.args.dry_run:
+            logging.info("DRY RUN: No node CIDRs to process.")
+            return
         node_json = json.loads(node_output)
         for item in node_json["items"]:
             node = item["metadata"]["name"]
             podcidr = item["spec"]["podCIDR"]
             self.node_pod_cidrs[node] = podcidr
-            logging.info("Node %s has pod CIDR %s.", node, podcidr)
+            logging.info(f"Node {node} has pod CIDR {podcidr}.")
 
     @timeit
-    def translate_path(self, path):
+    def set_k8s_paths(self):
         """given string containing special macro, return command line with
         directories substituted in string."""
 
-        path_dict = {
-            '{CHECKOUT_DIR}': os.path.dirname(os.path.realpath(sys.argv[0])),
-            '{OUTPUT_DIR}': self.args.output_dir,
-        }
+        self.kubify_dirs['CHECKOUT_DIR'] = os.path.dirname(os.path.realpath(sys.argv[0]))
+        self.kubify_dirs['OUTPUT_DIR'] =  self.args.output_dir
 
-        # now we can update the dict path based upon the base ones above
-        path_dict.update({
-            '{ADDON_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'addon'),
-            '{ADMIN_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'admin'),
-            '{API_SERVER_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
-                                             'api_server'),
-            '{BIN_DIR}': os.path.join(
-                path_dict['{OUTPUT_DIR}'],
+        self.kubify_dirs['ADDON_DIR'] = os.path.join(
+            self.kubify_dirs['OUTPUT_DIR'], 'addon')
+        self.kubify_dirs['ADMIN_DIR'] = os.path.join(
+            self.kubify_dirs['OUTPUT_DIR'], 'admin')
+
+        self.kubify_dirs['API_SERVER_DIR'] = os.path.join(
+            self.kubify_dirs['OUTPUT_DIR'], 'api_server')
+
+        self.kubify_dirs['BIN_DIR'] = os.path.join(
+                self.kubify_dirs['OUTPUT_DIR'],
                 self.args.kube_ver,
-                'bin'),
-            '{CA_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'ca'),
-            '{CONFIG_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'], 'configs'),
-            '{ENCRYPTION_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'],
-                                             'encryption'),
-            '{INSTALL_DIR}': self.config.get('general', 'install_dir'),
-            '{ETCD_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'etcd'),
-            '{PROXY_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'proxy'),
-            '{SCRIPTS_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'],
-                                          'scripts'),
-            '{TEMPLATE_DIR}': os.path.join(path_dict['{CHECKOUT_DIR}'],
-                                           'templates'),
-            '{TMP_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'tmp'),
-            '{WORKER_DIR}': os.path.join(path_dict['{OUTPUT_DIR}'], 'workers')
+                'bin')
 
-        })
-        logging.debug('translating %s.', path)
-        for key, value in path_dict.iteritems():
-            path = string.replace(path, key, value)
-        logging.debug('returning translated path %s.', path)
-        return path
+        self.kubify_dirs['CA_DIR'] = os.path.join(
+            self.kubify_dirs['OUTPUT_DIR'], 'ca')
+        self.kubify_dirs['CHECKOUT_CONFIG_DIR'] = os.path.join(
+            self.kubify_dirs['CHECKOUT_DIR'], 'configs')
+
+        self.kubify_dirs['ENCRYPTION_DIR'] = os.path.join(
+            self.kubify_dirs['OUTPUT_DIR'],
+            'encryption')
+
+        self.kubify_dirs['INSTALL_DIR'] = self.config.get('general', 'install_dir')
+
+        self.kubify_dirs['ETCD_DIR'] = os.path.join(
+            self.kubify_dirs['OUTPUT_DIR'], 'etcd')
+        self.kubify_dirs['PROXY_DIR'] = os.path.join(
+            self.kubify_dirs['OUTPUT_DIR'], 'proxy')
+
+        self.kubify_dirs['CHECKOUT_SCRIPTS_DIR'] =  os.path.join(
+            self.kubify_dirs['CHECKOUT_DIR'], 'scripts')
+
+        self.kubify_dirs['TEMPLATE_DIR'] =  os.path.join(
+            self.kubify_dirs['CHECKOUT_DIR'], 'templates')
+        self.kubify_dirs['TMP_DIR'] = os.path.join(
+            self.kubify_dirs['OUTPUT_DIR'], 'tmp')
+        self.kubify_dirs['WORKER_DIR'] = os.path.join(
+            self.kubify_dirs['OUTPUT_DIR'], 'workers')
 
     @timeit
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
@@ -128,14 +138,8 @@ class KubeBuild(object):
         """copy the local file to the remote destination."""
         ssh_args = "-q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
         self.run_command(
-            "scp %(ssh_args)s %(local_path)s "
-            "%(remote_user)s@%(remote_host)s:%(remote_path)s" % {
-                'ssh_args': ssh_args,
-                'local_path': local_path,
-                'remote_user': remote_user,
-                'remote_host': remote_host,
-                'remote_path': remote_path
-            },
+            f"scp {ssh_args} {local_path} "
+            f"{remote_user}@{remote_host}:{remote_path}",
             ignore_errors=ignore_errors,
         )
 
@@ -148,12 +152,7 @@ class KubeBuild(object):
                     '-t -q')
 
         output = self.run_command(
-            "ssh %(ssh_args)s %(remote_user)s@%(remote_host)s "
-            "%(command)s" % {
-                'ssh_args': ssh_args,
-                'remote_user': remote_user,
-                'remote_host': remote_host,
-                'command': command},
+            f"ssh {ssh_args} {remote_user}@{remote_host} {command}",
             ignore_errors=ignore_errors,
             return_output=return_output,
             )
@@ -168,39 +167,30 @@ class KubeBuild(object):
 
         bare_filenames = [os.path.basename(x) for x in local_path.split()]
         bare_filenames_str = " ".join(bare_filenames)
-        local_path = self.translate_path(local_path)
-        remote_path = self.translate_path(remote_path)
         self.scp_file(local_path, remote_user, remote_host, '~/')
 
         if executable:
             self.run_command_via_ssh(
                 remote_user, remote_host,
-                'chmod +x %(bare_filenames)s' % {'bare_filenames': bare_filenames_str})
+                f"chmod +x {bare_filenames_str}")
 
         self.run_command_via_ssh(
             remote_user, remote_host,
-            'sudo cp %(bare_filenames)s %(remote_path)s' % {
-                'bare_filenames': bare_filenames_str,
-                'remote_path': remote_path})
-
+            f"sudo cp {bare_filenames_str} {remote_path}")
 
     @timeit
     def write_template(self, input_template, output_path, template_vars):
         """write a jinja2 template, with support for dry run and logging."""
 
-        input_template_path = self.translate_path(input_template)
-        rendered_output_path = self.translate_path(output_path)
-
         output = helpers.render_template(
-            input_template_path,
+            input_template,
             template_vars)
 
         if self.args.dry_run:
-            logging.info('DRYRUN: would have written template '
-                         '%s to %s.', input_template_path,
-                         rendered_output_path)
+            logging.info(f"DRYRUN: would have written template "
+                         f"{input_template} to {output_path}")
         else:
-            with open(rendered_output_path, 'w') as output_file:
+            with open(output_path, 'w') as output_file:
                 output_file.write(output)
 
 
@@ -211,6 +201,9 @@ class KubeBuild(object):
 
         if not self.args.skip_tools_download:
             self.download_tools()
+
+        if not self.args.action:
+            return
 
         if 'create_certs' in self.args.action:
             self.create_ca_cert_private_key()
@@ -273,42 +266,36 @@ class KubeBuild(object):
 
     @timeit
     def run_command(self, cmd, return_output=False,
-                    cmd_stdin=None, write_output='', ignore_errors=False):
+                    cmd_stdin=None, output_file='', ignore_errors=False):
         """given a command, translate needed paths and run it."""
-        command_list = self.translate_path(cmd).split()
+        command_list = cmd.split()
         output = ""
 
         if self.args.dry_run:
-            logging.info('DRYRUN: would have run %s.', " ".join(command_list))
+            logging.info(f"DRYRUN: would have run {' '.join(command_list)}")
         else:
             try:
-                logging.debug('running %s', " ".join(command_list))
-                output = subprocess.check_output(
-                    command_list,
-                    stdin=cmd_stdin,
-                    )
+                logging.debug(f"running {' '.join(command_list)}")
+                output = subprocess.check_output(command_list, stdin=cmd_stdin).decode()
                 if output:
-                    logging.debug("command output: %s", output)
+                    logging.debug(f"command output: {output}")
             except subprocess.CalledProcessError as err:
-                logging.fatal("Error in running %s. Output: %s",
-                              command_list, err.output)
-                output = err.output
+                logging.fatal(f"Error in running {command_list}. Output: {err.output}")
+                output = err.output.decode()
                 if ignore_errors:
                     logging.info('ERROR IGNORED, continuing on.')
                 else:
                     sys.exit(1)
 
-        if write_output:
-            out_file = self.translate_path(write_output)
-
+        if output_file:
             if self.args.dry_run:
-                logging.debug('DRYRUN: writing output to %s.', out_file)
+                logging.debug(f"DRYRUN: writing output to {output_file}")
                 return
 
-            logging.debug("writing output to %s.", out_file)
-            with open(out_file, 'w') as of:
+            logging.debug(f"writing output to {output_file}")
+            with open(output_file, 'w') as of:
                 of.write(output)
-            logging.debug("done writing output to %s.", out_file)
+            logging.debug(f"done writing output to {output_file}")
 
         if return_output:
             return output
@@ -320,72 +307,69 @@ class KubeBuild(object):
                    'bin', 'ca', 'encryption', 'etcd', 'proxy', 'tmp', 'workers']
         if self.args.clear_output_dir:
             if self.args.dry_run:
-                logging.info("DRYRUN: Would have deleted %s.",
-                             self.args.output_dir)
+                logging.info(f"DRYRUN: Would have deleted {self.args.output_dir}")
             else:
-                logging.info("Deleting directory %s.",
-                             self.args.output_dir)
+                logging.info(f"Deleting directory {self.args.output_dir}")
                 if os.path.exists(self.args.output_dir):
                     shutil.rmtree(self.args.output_dir)
 
         for current_dir in subdirs:
             if self.args.dry_run:
-                logging.debug('DRYRUN: create directory %s.',
-                              os.path.join(self.args.output_dir,
-                                           current_dir))
+                logging.debug(f"DRYRUN: create directory {os.path.join(self.args.output_dir,current_dir)}")
             else:
                 dest_dir = os.path.join(self.args.output_dir,current_dir)
                 if not os.path.exists(dest_dir):
-                    logging.debug("Creating directory %s.", dest_dir)
+                    logging.debug(f"Creating directory {dest_dir}.")
                     os.makedirs(dest_dir)
 
     @timeit
     def download_tools(self):
         """download kubernetes cluster and cfssl cert creation binaries."""
+        etcd_version = self.config.get('general', 'etcd_version')
         files_to_get = {
             'https://pkg.cfssl.org/R1.2/cfssl_linux-amd64':
-            self.translate_path('{BIN_DIR}/cfssl'),
+            f"{self.kubify_dirs['BIN_DIR']}/cfssl",
+
             'https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64':
-            self.translate_path('{BIN_DIR}/cfssljson'),
+            f"{self.kubify_dirs['BIN_DIR']}/cfssljson",
+
             os.path.join(self.kube_release_dir, 'kubectl'):
-            self.translate_path('{BIN_DIR}/kubectl'),
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl",
             os.path.join(self.kube_release_dir, 'kubelet'):
-            self.translate_path('{BIN_DIR}/kubelet'),
+            f"{self.kubify_dirs['BIN_DIR']}/kubelet",
             os.path.join(self.kube_release_dir, 'kube-apiserver'):
-            self.translate_path('{BIN_DIR}/kube-apiserver'),
+            f"{self.kubify_dirs['BIN_DIR']}/kube-apiserver",
             os.path.join(self.kube_release_dir, 'kube-controller-manager'):
-            self.translate_path('{BIN_DIR}/kube-controller-manager'),
+            f"{self.kubify_dirs['BIN_DIR']}/kube-controller-manager",
             os.path.join(self.kube_release_dir, 'kube-proxy'):
-            self.translate_path('{BIN_DIR}/kube-proxy'),
+            f"{self.kubify_dirs['BIN_DIR']}/kube-proxy",
             os.path.join(self.kube_release_dir, 'kube-scheduler'):
-            self.translate_path('{BIN_DIR}/kube-scheduler'),
-            'https://github.com/etcd-io/etcd/releases/download/v%(ver)s/etcd-v%(ver)s-linux-amd64.tar.gz' % {
-            'ver': self.config.get('general', 'etcd_version')}: self.translate_path('{BIN_DIR}/etcd-v%s.tar.gz' % self.config.get('general', 'etcd_version')),
+            f"{self.kubify_dirs['BIN_DIR']}/kube-scheduler",
+            f"https://github.com/etcd-io/etcd/releases/download/v{etcd_version}/etcd-v{etcd_version}-linux-amd64.tar.gz":
+            f"{self.kubify_dirs['BIN_DIR']}/etcd-v{etcd_version}.tar.gz"
         }
 
-        if not os.path.exists(self.translate_path('{BIN_DIR}')):
-            os.makedirs(self.translate_path('{BIN_DIR}'))
+        if not os.path.exists(f"{self.kubify_dirs['BIN_DIR']}"):
+            os.makedirs(f"{self.kubify_dirs['BIN_DIR']}")
 
         logging.info("downloading new set of binary tools")
-        for remotef, localf in files_to_get.iteritems():
-            localf = self.translate_path(localf)
+        for remotef, localf in files_to_get.items():
             if self.args.dry_run:
-                logging.info("DRY RUN: would have downloaded %s to %s.",
-                             remotef, localf)
+                logging.info(f"DRY RUN: would have downloaded {remotef} to {localf}.")
                 continue
 
-            logging.debug('downloading %s to %s.', remotef, localf)
-            urllib.urlretrieve(remotef, localf)
-            os.chmod(localf, 0775)
+            logging.debug(f"downloading {remotef} to {localf}")
+            urllib.request.urlretrieve(remotef, localf)
+            os.chmod(localf, 0o775)
 
-        self.run_command('tar -xvzf {BIN_DIR}/etcd-v%s.tar.gz -C {BIN_DIR}' % self.config.get('general', 'etcd_version'))
+        self.run_command(f"tar -xvzf {self.kubify_dirs['BIN_DIR']}/etcd-v{etcd_version}.tar.gz -C {self.kubify_dirs['BIN_DIR']}")
         logging.info("done downloading tools")
 
     @timeit
     def create_control_plane_configs(self):
         node_type = 'controller'
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
-        etcd_servers = ",".join(['https://%s:2379' % x for x in nodes])
+        etcd_servers = ",".join([f"https://{x}:2379" for x in nodes])
         template_vars = {
             'CERTS_DIR': self.config.get('general',
                                          'ssl_certs_dir'),
@@ -400,18 +384,18 @@ class KubeBuild(object):
                                             'service_cidr')}
 
         self.write_template(
-            '{TEMPLATE_DIR}/kube-controller-manager.service',
-            '{API_SERVER_DIR}/kube-controller-manager.service',
+            f"{self.kubify_dirs['TEMPLATE_DIR']}/kube-controller-manager.service",
+            f"{self.kubify_dirs['API_SERVER_DIR']}/kube-controller-manager.service",
             template_vars)
 
         self.write_template(
-            '{TEMPLATE_DIR}/kube-scheduler.service',
-            '{API_SERVER_DIR}/kube-scheduler.service',
+            f"{self.kubify_dirs['TEMPLATE_DIR']}/kube-scheduler.service",
+            f"{self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler.service",
             template_vars)
 
         self.write_template(
-            '{TEMPLATE_DIR}/kube-scheduler.yaml',
-            '{API_SERVER_DIR}/kube-scheduler.yaml',
+            f"{self.kubify_dirs['TEMPLATE_DIR']}/kube-scheduler.yaml",
+            f"{self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler.yaml",
             template_vars)
 
 
@@ -420,19 +404,18 @@ class KubeBuild(object):
                 self.config.get('controller', 'prefix'),
                 self.get_node_domain(),
                 cur_index)
-            logging.info('creating control plane configs for %s.',
-                hostname)
+            logging.info(f"creating control plane configs for {hostname}.")
 
             template_vars.update({
                 'IP_ADDRESS': nodes[cur_index],
                 'HOSTNAME': hostname})
 
             self.run_command(
-                cmd=('mkdir -p {API_SERVER_DIR}/%s/' % hostname))
+                cmd=(f"mkdir -p {self.kubify_dirs['API_SERVER_DIR']}/{hostname}/"))
 
             self.write_template(
-                '{TEMPLATE_DIR}/kube-apiserver.service',
-                '{API_SERVER_DIR}/%s/kube-apiserver.service' % hostname,
+                f"{self.kubify_dirs['TEMPLATE_DIR']}/kube-apiserver.service",
+                f"{self.kubify_dirs['API_SERVER_DIR']}/{hostname}/kube-apiserver.service",
                 template_vars)
 
 
@@ -452,17 +435,17 @@ class KubeBuild(object):
                 self.get_node_domain(),
                 node_index)
 
-            logging.info('deploying kubernetes control plane on %s.', hostname)
+            logging.info(f"deploying kubernetes control plane on {hostname}")
 
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
-                'sudo mkdir -p {INSTALL_DIR}/bin/')
+                f"sudo mkdir -p {self.kubify_dirs['INSTALL_DIR']}/bin/")
 
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
-                'sudo mkdir -p {INSTALL_DIR}/conf/')
+                f"sudo mkdir -p {self.kubify_dirs['INSTALL_DIR']}/conf/")
 
             self.control_binaries(
                 hostname,
@@ -487,39 +470,39 @@ class KubeBuild(object):
 
             for cur_file in kube_bins:
                 self.deploy_file(
-                    '{BIN_DIR}/%s' % cur_file,
+                    f"{self.kubify_dirs['BIN_DIR']}/{cur_file}",
                     remote_user,
                     nodes[node_index],
-                    '{INSTALL_DIR}/bin/',
+                    f"{self.kubify_dirs['INSTALL_DIR']}/bin/",
                     executable=True)
 
             self.deploy_file(
-                ('{ENCRYPTION_DIR}/encryption-config.yaml '
-                 '{API_SERVER_DIR}/kube-controller-manager.kubeconfig '
-                 '{API_SERVER_DIR}/kube-scheduler.kubeconfig '
-                 '{API_SERVER_DIR}/kube-scheduler.yaml'),
+                (f"{self.kubify_dirs['ENCRYPTION_DIR']}/encryption-config.yaml "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/kube-controller-manager.kubeconfig "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler.kubeconfig "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler.yaml"),
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/conf/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/conf/")
 
             self.deploy_file(
-                ('{API_SERVER_DIR}/%s/kube-apiserver.service '
-                 '{API_SERVER_DIR}/kube-controller-manager.service '
-                 '{API_SERVER_DIR}/kube-scheduler.service ' % hostname),
+                (f"{self.kubify_dirs['API_SERVER_DIR']}/{hostname}/kube-apiserver.service "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/kube-controller-manager.service "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler.service"),
                 remote_user,
                 nodes[node_index],
                 '/etc/systemd/system/')
 
             self.deploy_file(
-                ('{API_SERVER_DIR}/api-server.pem '
-                 '{API_SERVER_DIR}/api-server-key.pem '
-                 '{CA_DIR}/ca.pem '
-                 '{CA_DIR}/ca-key.pem '
-                 '{API_SERVER_DIR}/service-account.pem '
-                 '{API_SERVER_DIR}/service-account-key.pem'),
+                (f"{self.kubify_dirs['API_SERVER_DIR']}/api-server.pem "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/api-server-key.pem "
+                 f"{self.kubify_dirs['CA_DIR']}/ca.pem "
+                 f"{self.kubify_dirs['CA_DIR']}/ca-key.pem "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/service-account.pem "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/service-account-key.pem"),
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/certs/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/certs/")
 
             self.control_binaries(
                 hostname,
@@ -548,10 +531,10 @@ class KubeBuild(object):
         """create ca cert and private key."""
         logging.info("beginning to create ca certificates")
         self.run_command(
-            cmd="{BIN_DIR}/cfssl gencert -initca {TEMPLATE_DIR}/kubernetes-csr.json",
-            write_output='{TMP_DIR}/cfssl_initca.output')
+            cmd=f"{self.kubify_dirs['BIN_DIR']}/cfssl gencert -initca {self.kubify_dirs['TEMPLATE_DIR']}/kubernetes-csr.json",
+            output_file=f"{self.kubify_dirs['TMP_DIR']}/cfssl_initca.output")
         self.run_command(
-            cmd='{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_initca.output {CA_DIR}/ca')
+            cmd=f"{self.kubify_dirs['BIN_DIR']}/cfssljson -bare -f {self.kubify_dirs['TMP_DIR']}/cfssl_initca.output {self.kubify_dirs['CA_DIR']}/ca")
         logging.info("finished creating ca certificates")
 
 
@@ -560,15 +543,15 @@ class KubeBuild(object):
         """create admin client certificate"""
         logging.info("beginning to create admin client certificates")
         self.run_command(
-            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
-                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
-                 "-config={TEMPLATE_DIR}/ca-config.json "
-                 "-profile=kubernetes {TEMPLATE_DIR}/admin-csr.json"),
-            write_output='{TMP_DIR}/cfssl_gencert_admin.output')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssl gencert -ca={self.kubify_dirs['OUTPUT_DIR']}/ca/ca.pem "
+                 f"-ca-key={self.kubify_dirs['OUTPUT_DIR']}/ca/ca-key.pem "
+                 f"-config={self.kubify_dirs['TEMPLATE_DIR']}/ca-config.json "
+                 f"-profile=kubernetes {self.kubify_dirs['TEMPLATE_DIR']}/admin-csr.json"),
+            output_file=f"{self.kubify_dirs['TMP_DIR']}/cfssl_gencert_admin.output")
 
         self.run_command(
-            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_admin.output '
-                 '{ADMIN_DIR}/admin')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssljson -bare -f {self.kubify_dirs['TMP_DIR']}/cfssl_gencert_admin.output "
+                 f"{self.kubify_dirs['ADMIN_DIR']}/admin")
             )
         logging.info("finished creating admin client certificates")
 
@@ -577,15 +560,15 @@ class KubeBuild(object):
         """create controller manager certificate"""
         logging.info("beginning to create controller manager certificate")
         self.run_command(
-            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
-                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
-                 "-config={TEMPLATE_DIR}/ca-config.json "
-                 "-profile=kubernetes {TEMPLATE_DIR}/kube-controller-manager-csr.json"),
-            write_output='{TMP_DIR}/cfssl_gencert_kube_controller_manager.output')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssl gencert -ca={self.kubify_dirs['OUTPUT_DIR']}/ca/ca.pem "
+                 f"-ca-key={self.kubify_dirs['OUTPUT_DIR']}/ca/ca-key.pem "
+                 f"-config={self.kubify_dirs['TEMPLATE_DIR']}/ca-config.json "
+                 f"-profile=kubernetes {self.kubify_dirs['TEMPLATE_DIR']}/kube-controller-manager-csr.json"),
+            output_file=f"{self.kubify_dirs['TMP_DIR']}/cfssl_gencert_kube_controller_manager.output")
 
         self.run_command(
-            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_kube_controller_manager.output '
-                 '{API_SERVER_DIR}/kube-controller-manager')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssljson -bare -f {self.kubify_dirs['TMP_DIR']}/cfssl_gencert_kube_controller_manager.output "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/kube-controller-manager")
             )
         logging.info("finished creating controller manager certificate")
 
@@ -594,15 +577,15 @@ class KubeBuild(object):
         """create kube service account certificate"""
         logging.info("beginning to create service account certificate")
         self.run_command(
-            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
-                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
-                 "-config={TEMPLATE_DIR}/ca-config.json "
-                 "-profile=kubernetes {TEMPLATE_DIR}/kube-service-account-csr.json"),
-            write_output='{TMP_DIR}/cfssl_gencert_service_account.output')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssl gencert -ca={self.kubify_dirs['OUTPUT_DIR']}/ca/ca.pem "
+                 f"-ca-key={self.kubify_dirs['OUTPUT_DIR']}/ca/ca-key.pem "
+                 f"-config={self.kubify_dirs['TEMPLATE_DIR']}/ca-config.json "
+                 f"-profile=kubernetes {self.kubify_dirs['TEMPLATE_DIR']}/kube-service-account-csr.json"),
+            output_file=f"{self.kubify_dirs['TMP_DIR']}/cfssl_gencert_service_account.output")
 
         self.run_command(
-            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_service_account.output '
-                 '{API_SERVER_DIR}/service-account')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssljson -bare -f {self.kubify_dirs['TMP_DIR']}/cfssl_gencert_service_account.output "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/service-account")
             )
         logging.info("finished creating controller manager certificate")
 
@@ -612,8 +595,8 @@ class KubeBuild(object):
         logging.info('beginning to create Kubernetes encryptionconfig file.')
 
         self.write_template(
-            '{TEMPLATE_DIR}/encryption-config.yaml',
-            '{ENCRYPTION_DIR}/encryption-config.yaml',
+            f"{self.kubify_dirs['TEMPLATE_DIR']}/encryption-config.yaml",
+            f"{self.kubify_dirs['ENCRYPTION_DIR']}/encryption-config.yaml",
             {'key': self.config.get('general', 'encryption_key')}
         )
 
@@ -632,11 +615,11 @@ class KubeBuild(object):
             hostname = helpers.hostname_with_index(prefix,
                                                    self.get_node_domain(),
                                                    node_index)
-            logging.debug('deploying encryptionconfig to %s.', hostname)
-            ec_file = ("{ENCRYPTION_DIR}/encryption-config.yaml")
+            logging.debug(f'deploying encryptionconfig to {hostname}.')
+            ec_file = f"{self.kubify_dirs['ENCRYPTION_DIR']}/encryption-config.yaml"
 
             self.deploy_file(
-                '{ENCRYPTION_DIR}/encryption-config.yaml',
+                f"{self.kubify_dirs['ENCRYPTION_DIR']}/encryption-config.yaml",
                 remote_user,
                 nodes[node_index],
                 '/etc/ssl/certs/')
@@ -647,7 +630,7 @@ class KubeBuild(object):
     def create_etcd_certs(self, node_type):
         """create certificates for etcd peers."""
         for cur_index in range(0, self.get_node_count(node_type)):
-            logging.info('creating etcd certs for node type %s.', node_type)
+            logging.info(f'creating etcd certs for node type {node_type}.')
             hostname = helpers.hostname_with_index(
                 self.config.get(node_type, 'prefix'),
                 self.get_node_domain(),
@@ -655,27 +638,25 @@ class KubeBuild(object):
             template_vars = {'HOSTNAME': hostname}
 
             self.write_template(
-                '{TEMPLATE_DIR}/etcd-csr.json',
-                '{ETCD_DIR}/%s_etcd-csr.json' % hostname,
+                f"{self.kubify_dirs['TEMPLATE_DIR']}/etcd-csr.json",
+                f"{self.kubify_dirs['ETCD_DIR']}/{hostname}_etcd-csr.json",
                 template_vars)
 
-            logging.info('creating etcd certificate for host %s', hostname)
+            logging.info(f'creating etcd certificate for host {hostname}.')
             self.run_command(
-                cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
-                     "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
-                     "-config={TEMPLATE_DIR}/ca-config.json "
+                cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssl gencert -ca={self.kubify_dirs['OUTPUT_DIR']}/ca/ca.pem "
+                     f"-ca-key={self.kubify_dirs['OUTPUT_DIR']}/ca/ca-key.pem "
+                     f"-config={self.kubify_dirs['TEMPLATE_DIR']}/ca-config.json "
                      "-profile=kubernetes "
-                     "-hostname=%(hostname_arg)s,127.0.0.1 "
-                     "%(template_path)s" % {
-                         'template_path': '{ETCD_DIR}/%s_etcd-csr.json' % hostname,
-                         'hostname_arg': self.config.get(node_type, 'ip_addresses')}),
-                write_output='{ETCD_DIR}/cfssl_gencert_etcd-%s.output' % hostname)
+                     f"-hostname={self.config.get(node_type, 'ip_addresses')},127.0.0.1 "
+                     f"{self.kubify_dirs['ETCD_DIR']}/{hostname}_etcd-csr.json"),
+                output_file=f"{self.kubify_dirs['ETCD_DIR']}/cfssl_gencert_etcd-{hostname}.output")
 
             self.run_command(
-                cmd=("{BIN_DIR}/cfssljson -bare "
-                     "-f {ETCD_DIR}/cfssl_gencert_etcd-%(hostname)s.output "
-                     "-bare {ETCD_DIR}/%(hostname)s-etcd" % {
-                         'hostname': hostname}))
+                cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssljson -bare "
+                     f"-f {self.kubify_dirs['ETCD_DIR']}/cfssl_gencert_etcd-{hostname}.output "
+                     f"-bare {self.kubify_dirs['ETCD_DIR']}/{hostname}-etcd"))
+
 
     @timeit
     def create_etcd_configs(self, node_type):
@@ -695,47 +676,42 @@ class KubeBuild(object):
             }
 
             self.write_template(
-                '{TEMPLATE_DIR}/etcd.service',
-                '{WORKER_DIR}/%s-etcd.service' % hostname,
+                f"{self.kubify_dirs['TEMPLATE_DIR']}/etcd.service",
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}-etcd.service",
                 template_vars)
 
     @timeit
     def create_kubelet_certs(self, node_type):
         """create certificates for kubernetes node kubelets."""
         for cur_index in range(0, self.get_node_count(node_type)):
-            logging.info('creating kubelet-csr.json template for %s node %d.',
-                         node_type, cur_index)
+            logging.info(f"creating kubelet-csr.json template for {node_type} node {cur_index}.")
             hostname = helpers.hostname_with_index(
                 self.config.get(node_type, 'prefix'),
                 self.get_node_domain(),
                 cur_index)
             ip_address = self.get_node_ip_addresses(node_type).split(',')[cur_index]
 
-            logging.debug('Hostname: %s, IP Address: %s.',
-                          hostname, ip_address)
+            logging.debug(f'Hostname: {hostname}, IP Address: {ip_address}.')
 
             self.write_template(
-                '{TEMPLATE_DIR}/kubelet-csr.json',
-                '{WORKER_DIR}/%s_kubelet-csr.json' % hostname,
+                f"{self.kubify_dirs['TEMPLATE_DIR']}/kubelet-csr.json",
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}_kubelet-csr.json",
                 {'HOSTNAME': hostname})
 
-            logging.info('creating kubelet certificate for host %s', hostname)
+            logging.info(f'creating kubelet certificate for host {hostname}.')
             self.run_command(
-                cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
-                     "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
-                     "-config={TEMPLATE_DIR}/ca-config.json "
+                cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssl gencert -ca={self.kubify_dirs['OUTPUT_DIR']}/ca/ca.pem "
+                     f"-ca-key={self.kubify_dirs['OUTPUT_DIR']}/ca/ca-key.pem "
+                     f"-config={self.kubify_dirs['TEMPLATE_DIR']}/ca-config.json "
                      "-profile=kubernetes "
-                     "-hostname=%(hostname)s,%(ip_address)s "
-                     "%(template_path)s" % {
-                         'hostname': hostname,
-                         'ip_address': ip_address,
-                         'template_path': '{WORKER_DIR}/%s_kubelet-csr.json' % hostname}),
-                write_output='{WORKER_DIR}/cfssl_gencert_kubelet-%s.output' % hostname)
+                     f"-hostname={hostname},{ip_address} "
+                     f"{self.kubify_dirs['WORKER_DIR']}/{hostname}_kubelet-csr.json"),
+                output_file=f"{self.kubify_dirs['WORKER_DIR']}/cfssl_gencert_kubelet-{hostname}.output")
 
             self.run_command(
-                cmd=("{BIN_DIR}/cfssljson -bare "
-                     "-f {WORKER_DIR}/cfssl_gencert_kubelet-%(hostname)s.output "
-                     "-bare {WORKER_DIR}/%(hostname)s-kubelet" % {'hostname': hostname}))
+                cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssljson -bare "
+                     f"-f {self.kubify_dirs['WORKER_DIR']}/cfssl_gencert_kubelet-{hostname}.output "
+                     f"-bare {self.kubify_dirs['WORKER_DIR']}/{hostname}-kubelet"))
 
     @timeit
     def create_kubelet_kubeconfigs(self, node_type):
@@ -745,41 +721,33 @@ class KubeBuild(object):
                 self.config.get(node_type, 'prefix'),
                 self.get_node_domain(),
                 cur_index)
-            logging.info('creating kubelet kubeconfig for %s.', hostname)
+            logging.info(f"creating kubelet kubeconfig for {hostname}.")
             self.run_command(
-                '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
-                '--certificate-authority={CA_DIR}/ca.pem '
-                '--embed-certs=true '
-                '--server=https://%(api_server)s '
-                '--kubeconfig={WORKER_DIR}/%(hostname)s.kubeconfig' % {
-                    'cluster_name': self.config.get('general', 'cluster_name'),
-                    'api_server': self.config.get(
-                        'general',
-                        'api_server_ip_address'),
-                    'hostname': hostname})
+                f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-cluster {self.config.get('general', 'cluster_name')} "
+                f"--certificate-authority={self.kubify_dirs['CA_DIR']}/ca.pem "
+                f"--embed-certs=true "
+                f"--server=https://{self.config.get('general','api_server_ip_address')} "
+                f"--kubeconfig={self.kubify_dirs['WORKER_DIR']}/{hostname}.kubeconfig")
 
             self.run_command(
-                '{BIN_DIR}/kubectl config set-credentials '
-                'system:node:%(hostname)s '
-                '--client-certificate={WORKER_DIR}/%(hostname)s-kubelet.pem '
-                '--client-key={WORKER_DIR}/%(hostname)s-kubelet-key.pem '
-                '--embed-certs=true '
-                '--kubeconfig={WORKER_DIR}/%(hostname)s.kubeconfig' % {
-                    'hostname': hostname})
+                f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-credentials "
+                f"system:node:{hostname} "
+                f"--client-certificate={self.kubify_dirs['WORKER_DIR']}/{hostname}-kubelet.pem "
+                f"--client-key={self.kubify_dirs['WORKER_DIR']}/{hostname}-kubelet-key.pem "
+                f"--embed-certs=true "
+                f"--kubeconfig={self.kubify_dirs['WORKER_DIR']}/{hostname}.kubeconfig")
 
             self.run_command(
-                '{BIN_DIR}/kubectl config set-context default '
-                '--cluster %(cluster_name)s '
-                '--user=system:node:%(hostname)s '
-                '--kubeconfig={WORKER_DIR}/%(hostname)s.kubeconfig' % {
-                    'cluster_name': self.config.get('general', 'cluster_name'),
-                    'hostname': hostname})
+                f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-context default "
+                f"--cluster {self.config.get('general', 'cluster_name')} "
+                f"--user=system:node:{hostname} "
+                f"--kubeconfig={self.kubify_dirs['WORKER_DIR']}/{hostname}.kubeconfig")
 
             self.run_command(
-                '{BIN_DIR}/kubectl config use-context default '
-                '--kubeconfig={WORKER_DIR}/%(hostname)s.kubeconfig' % {
-                    'hostname': hostname})
-            logging.info('finished creating kubelet kubeconfig for %s.', hostname)
+                f"{self.kubify_dirs['BIN_DIR']}/kubectl config use-context default "
+                f"--kubeconfig={self.kubify_dirs['WORKER_DIR']}/{hostname}.kubeconfig")
+
+            logging.info(f"finished creating kubelet kubeconfig for {hostname}.")
 
 
     @timeit
@@ -788,33 +756,28 @@ class KubeBuild(object):
         logging.info('creating kubeproxy kube, yaml, and service config.')
 
         self.run_command(
-            '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
-            '--certificate-authority={CA_DIR}/ca.pem '
-            '--embed-certs=true '
-            '--server=https://%(api_server)s:443 '
-            '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig' % {
-                'api_server': self.config.get('general',
-                                              'api_server_ip_address'),
-                'cluster_name': self.config.get('general', 'cluster_name')})
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-cluster {self.config.get('general', 'cluster_name')} "
+            f"--certificate-authority={self.kubify_dirs['CA_DIR']}/ca.pem "
+            f"--embed-certs=true "
+            f"--server=https://{self.config.get('general','api_server_ip_address')}:443 "
+            f"--kubeconfig={self.kubify_dirs['PROXY_DIR']}/kube-proxy.kubeconfig")
 
         self.run_command(
-            '{BIN_DIR}/kubectl config set-credentials system:kube-proxy '
-            '--client-certificate={PROXY_DIR}/kube-proxy.pem '
-            '--client-key={PROXY_DIR}/kube-proxy-key.pem '
-            '--embed-certs=true '
-            '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig')
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-credentials system:kube-proxy "
+            f"--client-certificate={self.kubify_dirs['PROXY_DIR']}/kube-proxy.pem "
+            f"--client-key={self.kubify_dirs['PROXY_DIR']}/kube-proxy-key.pem "
+            f"--embed-certs=true "
+            f"--kubeconfig={self.kubify_dirs['PROXY_DIR']}/kube-proxy.kubeconfig")
 
         self.run_command(
-            '{BIN_DIR}/kubectl config set-context default '
-            '--cluster=%(cluster_name)s '
-            '--user=system:kube-proxy '
-            '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig' % {
-                'cluster_name': self.config.get('general', 'cluster_name')
-                })
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-context default "
+            f"--cluster={self.config.get('general', 'cluster_name')} "
+            f'--user=system:kube-proxy '
+            f"--kubeconfig={self.kubify_dirs['PROXY_DIR']}/kube-proxy.kubeconfig")
 
         self.run_command(
-            '{BIN_DIR}/kubectl config use-context default '
-            '--kubeconfig={PROXY_DIR}/kube-proxy.kubeconfig'
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config use-context default "
+            f"--kubeconfig={self.kubify_dirs['PROXY_DIR']}/kube-proxy.kubeconfig"
         )
 
         template_vars = {
@@ -823,13 +786,13 @@ class KubeBuild(object):
         }
 
         self.write_template(
-            "{CONFIG_DIR}/kube-proxy.yaml",
-            "{WORKER_DIR}/kube-proxy.yaml",
+            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kube-proxy.yaml",
+            f"{self.kubify_dirs['WORKER_DIR']}/kube-proxy.yaml",
             template_vars)
 
         self.write_template(
-            "{TEMPLATE_DIR}/kube-proxy.service",
-            "{WORKER_DIR}/kube-proxy.service",
+            f"{self.kubify_dirs['TEMPLATE_DIR']}/kube-proxy.service",
+            f"{self.kubify_dirs['WORKER_DIR']}/kube-proxy.service",
             template_vars)
 
         logging.info('finished creating kubeproxy kube, yaml, and service config')
@@ -839,34 +802,29 @@ class KubeBuild(object):
         """create kube-controller-manager kubeconfigs."""
         logging.info('creating kube-controller-manager kubeconfig.')
         self.run_command(
-            '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
-            '--certificate-authority={CA_DIR}/ca.pem '
-            '--embed-certs=true '
-            '--server=https://%(api_server)s:443 '
-            '--kubeconfig={API_SERVER_DIR}/kube-controller-manager.kubeconfig' % {
-                'api_server': self.config.get('general',
-                                              'api_server_ip_address'),
-                'cluster_name': self.config.get('general', 'cluster_name')})
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-cluster {self.config.get('general', 'cluster_name')} "
+            f"--certificate-authority={self.kubify_dirs['CA_DIR']}/ca.pem "
+            f'--embed-certs=true '
+            f"--server=https://{self.config.get('general','api_server_ip_address')}:443 "
+            f"--kubeconfig={self.kubify_dirs['API_SERVER_DIR']}/kube-controller-manager.kubeconfig")
 
         self.run_command(
-            '{BIN_DIR}/kubectl config set-credentials system:kube-controller-manager '
-            '--client-certificate={API_SERVER_DIR}/kube-controller-manager.pem '
-            '--client-key={API_SERVER_DIR}/kube-controller-manager-key.pem '
-            '--embed-certs=true '
-            '--kubeconfig={API_SERVER_DIR}/kube-controller-manager.kubeconfig')
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-credentials system:kube-controller-manager "
+            f"--client-certificate={self.kubify_dirs['API_SERVER_DIR']}/kube-controller-manager.pem "
+            f"--client-key={self.kubify_dirs['API_SERVER_DIR']}/kube-controller-manager-key.pem "
+            f"--embed-certs=true "
+            f"--kubeconfig={self.kubify_dirs['API_SERVER_DIR']}/kube-controller-manager.kubeconfig")
 
         self.run_command(
-            '{BIN_DIR}/kubectl config set-context default '
-            '--cluster=%(cluster_name)s '
-            '--user=system:kube-controller-manager '
-            '--kubeconfig={API_SERVER_DIR}/kube-controller-manager.kubeconfig' % {
-                'cluster_name': self.config.get('general', 'cluster_name')
-                })
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-context default "
+            f"--cluster={self.config.get('general', 'cluster_name')} "
+            f"--user=system:kube-controller-manager "
+            f"--kubeconfig={self.kubify_dirs['API_SERVER_DIR']}/kube-controller-manager.kubeconfig")
 
         self.run_command(
-            '{BIN_DIR}/kubectl config use-context default '
-            '--kubeconfig={API_SERVER_DIR}/kube-controller-manager.kubeconfig'
-        )
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config use-context default "
+            f"--kubeconfig={self.kubify_dirs['API_SERVER_DIR']}/kube-controller-manager.kubeconfig")
+
         logging.info('finished creating kube-controller-manager kubeconfig')
 
 
@@ -875,34 +833,29 @@ class KubeBuild(object):
         """create kube-scheduler kubeconfigs."""
         logging.info('creating kube-scheduler kubeconfig.')
         self.run_command(
-            '{BIN_DIR}/kubectl config set-cluster %(cluster_name)s '
-            '--certificate-authority={CA_DIR}/ca.pem '
-            '--embed-certs=true '
-            '--server=https://%(api_server)s:443 '
-            '--kubeconfig={API_SERVER_DIR}/kube-scheduler.kubeconfig' % {
-                'api_server': self.config.get('general',
-                                              'api_server_ip_address'),
-                'cluster_name': self.config.get('general', 'cluster_name')})
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-cluster {self.config.get('general', 'cluster_name')} "
+            f"--certificate-authority={self.kubify_dirs['CA_DIR']}/ca.pem "
+            f'--embed-certs=true '
+            f"--server=https://{self.config.get('general','api_server_ip_address')} "
+            f"--kubeconfig={self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler.kubeconfig")
 
         self.run_command(
-            '{BIN_DIR}/kubectl config set-credentials system:kube-scheduler '
-            '--client-certificate={API_SERVER_DIR}/kube-scheduler.pem '
-            '--client-key={API_SERVER_DIR}/kube-scheduler-key.pem '
-            '--embed-certs=true '
-            '--kubeconfig={API_SERVER_DIR}/kube-scheduler.kubeconfig')
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-credentials system:kube-scheduler "
+            f"--client-certificate={self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler.pem "
+            f"--client-key={self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler-key.pem "
+            f"--embed-certs=true "
+            f"--kubeconfig={self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler.kubeconfig")
 
         self.run_command(
-            '{BIN_DIR}/kubectl config set-context default '
-            '--cluster=%(cluster_name)s '
-            '--user=system:kube-scheduler '
-            '--kubeconfig={API_SERVER_DIR}/kube-scheduler.kubeconfig' % {
-                'cluster_name': self.config.get('general', 'cluster_name')
-                })
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-context default "
+            f"--cluster={self.config.get('general', 'cluster_name')} "
+            f"--user=system:kube-scheduler "
+            f"--kubeconfig={self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler.kubeconfig")
 
         self.run_command(
-            '{BIN_DIR}/kubectl config use-context default '
-            '--kubeconfig={API_SERVER_DIR}/kube-scheduler.kubeconfig'
-        )
+            f"{self.kubify_dirs['BIN_DIR']}/kubectl config use-context default "
+            f"--kubeconfig={self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler.kubeconfig")
+
         logging.info('finished creating kube-scheduler kubeconfig')
 
 
@@ -911,15 +864,15 @@ class KubeBuild(object):
         """create kube-proxy certs"""
         logging.info("beginning to create kube-proxy certificates")
         self.run_command(
-            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
-                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
-                 "-config={TEMPLATE_DIR}/ca-config.json "
-                 "-profile=kubernetes {TEMPLATE_DIR}/kube-proxy-csr.json"),
-            write_output='{TMP_DIR}/cfssl_gencert_kube-proxy.output')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssl gencert -ca={self.kubify_dirs['OUTPUT_DIR']}/ca/ca.pem "
+                 f"-ca-key={self.kubify_dirs['OUTPUT_DIR']}/ca/ca-key.pem "
+                 f"-config={self.kubify_dirs['TEMPLATE_DIR']}/ca-config.json "
+                 f"-profile=kubernetes {self.kubify_dirs['TEMPLATE_DIR']}/kube-proxy-csr.json"),
+            output_file=f"{self.kubify_dirs['TMP_DIR']}/cfssl_gencert_kube-proxy.output")
 
         self.run_command(
-            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_kube-proxy.output '
-                 '{PROXY_DIR}/kube-proxy')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssljson -bare -f {self.kubify_dirs['TMP_DIR']}/cfssl_gencert_kube-proxy.output "
+                 f"{self.kubify_dirs['PROXY_DIR']}/kube-proxy")
             )
         logging.info("finished creating kube-proxy certificates")
 
@@ -928,15 +881,16 @@ class KubeBuild(object):
         """create kube-scheduler certs"""
         logging.info("beginning to create kube-scheduler certificates")
         self.run_command(
-            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
-                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
-                 "-config={TEMPLATE_DIR}/ca-config.json "
-                 "-profile=kubernetes {TEMPLATE_DIR}/kube-scheduler-csr.json"),
-            write_output='{TMP_DIR}/cfssl_gencert_kube-scheduler.output')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssl gencert -ca={self.kubify_dirs['OUTPUT_DIR']}/ca/ca.pem "
+                 f"-ca-key={self.kubify_dirs['OUTPUT_DIR']}/ca/ca-key.pem "
+                 f"-config={self.kubify_dirs['TEMPLATE_DIR']}/ca-config.json "
+                 f"-profile=kubernetes {self.kubify_dirs['TEMPLATE_DIR']}/kube-scheduler-csr.json"),
+            output_file=f"{self.kubify_dirs['TMP_DIR']}/cfssl_gencert_kube-scheduler.output")
 
         self.run_command(
-            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_kube-scheduler.output '
-                 '{API_SERVER_DIR}/kube-scheduler')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssljson "
+                 f"-bare -f {self.kubify_dirs['TMP_DIR']}/cfssl_gencert_kube-scheduler.output "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/kube-scheduler")
             )
         logging.info("finished creating kube-scheduler certificates")
 
@@ -946,32 +900,23 @@ class KubeBuild(object):
         logging.info("beginning to create api server certificates")
         controller_addresses = self.config.get('controller', 'ip_addresses')
 
-        hostname_arg = ("%(controller_addresses)s,"
-                        "%(kubernetes_service_ip_address)s,"
-                        "%(api_server_ip_address)s,"
-                        "127.0.0.1,kubernetes.default" % {
-                            'controller_addresses': controller_addresses,
-                            'kubernetes_service_ip_address': helpers.get_ip_from_range(
-                                0, self.config.get('general', 'service_cidr')),
-                            'api_server_ip_address': self.config.get(
-                                'general',
-                                'api_server_ip_address')
-                            })
+        hostname_arg = (f"{controller_addresses},"
+                        f"{helpers.get_ip_from_range(0, self.config.get('general', 'service_cidr'))},"
+                        f"{self.config.get('general','api_server_ip_address')},"
+                        "127.0.0.1,kubernetes.default")
 
         self.run_command(
-            cmd=("{BIN_DIR}/cfssl gencert -ca={OUTPUT_DIR}/ca/ca.pem "
-                 "-ca-key={OUTPUT_DIR}/ca/ca-key.pem "
-                 "-config={TEMPLATE_DIR}/ca-config.json "
-                 "-hostname=%(hostname_arg)s "
-                 "-profile=kubernetes "
-                 "{TEMPLATE_DIR}/api-server-csr.json" % ({
-                     'hostname_arg': hostname_arg,
-                     })),
-            write_output='{TMP_DIR}/cfssl_gencert_api_server.output')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssl gencert -ca={self.kubify_dirs['OUTPUT_DIR']}/ca/ca.pem "
+                 f"-ca-key={self.kubify_dirs['OUTPUT_DIR']}/ca/ca-key.pem "
+                 f"-config={self.kubify_dirs['TEMPLATE_DIR']}/ca-config.json "
+                 f"-hostname={hostname_arg} "
+                 f"-profile=kubernetes "
+                 f"{self.kubify_dirs['TEMPLATE_DIR']}/api-server-csr.json"),
+            output_file=f"{self.kubify_dirs['TMP_DIR']}/cfssl_gencert_api_server.output")
 
         self.run_command(
-            cmd=('{BIN_DIR}/cfssljson -bare -f {TMP_DIR}/cfssl_gencert_api_server.output '
-                 '{API_SERVER_DIR}/api-server')
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/cfssljson -bare -f {self.kubify_dirs['TMP_DIR']}/cfssl_gencert_api_server.output "
+                 f"{self.kubify_dirs['API_SERVER_DIR']}/api-server")
             )
         logging.info("finished creating api server certificates")
 
@@ -981,37 +926,28 @@ class KubeBuild(object):
         logging.info("creating admin kubeconfig for remote access.")
 
         self.run_command(
-            ("{BIN_DIR}/kubectl config set-cluster %(cluster_name)s "
-             "--certificate-authority={CA_DIR}/ca.pem "
-             "--embed-certs=true "
-             "--server=https://%(api_server_ip_address)s "
-             "--kubeconfig={ADMIN_DIR}/admin.kubeconfig " % {
-                 'cluster_name': self.config.get('general', 'cluster_name'),
-                 'api_server_ip_address': self.config.get('general',
-                                                          'api_server_ip_address')
-             }))
+            (f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-cluster {self.config.get('general', 'cluster_name')} "
+             f"--certificate-authority={self.kubify_dirs['CA_DIR']}/ca.pem "
+             f"--embed-certs=true "
+             f"--server=https://{self.config.get('general','api_server_ip_address')} "
+             f"--kubeconfig={self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig"))
 
         self.run_command(
-            ("{BIN_DIR}/kubectl config set-credentials admin "
-             "--client-certificate={ADMIN_DIR}/admin.pem "
-             "--client-key={ADMIN_DIR}/admin-key.pem "
-             "--embed-certs=true "
-             "--kubeconfig={ADMIN_DIR}/admin.kubeconfig"))
+            (f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-credentials admin "
+             f"--client-certificate={self.kubify_dirs['ADMIN_DIR']}/admin.pem "
+             f"--client-key={self.kubify_dirs['ADMIN_DIR']}/admin-key.pem "
+             f"--embed-certs=true "
+             f"--kubeconfig={self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig"))
 
         self.run_command(
-            ("{BIN_DIR}/kubectl config set-context %(cluster_name)s "
-             "--cluster=%(cluster_name)s "
-             "--user=admin "
-             "--kubeconfig={ADMIN_DIR}/admin.kubeconfig" % {
-                 'cluster_name': self.config.get('general', 'cluster_name')
-             }
-            ))
+            (f"{self.kubify_dirs['BIN_DIR']}/kubectl config set-context {self.config.get('general', 'cluster_name')} "
+             f"--cluster={self.config.get('general', 'cluster_name')} "
+             f"--user=admin "
+             f"--kubeconfig={self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig"))
 
         self.run_command(
-            ("{BIN_DIR}/kubectl config use-context %(cluster_name)s "
-             "--kubeconfig={ADMIN_DIR}/admin.kubeconfig" % {
-                 'cluster_name': self.config.get('general', 'cluster_name')
-                 }))
+            (f"{self.kubify_dirs['BIN_DIR']}/kubectl config use-context {self.config.get('general', 'cluster_name')} "
+             f"--kubeconfig={self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig"))
 
         logging.info("done creating admin kubeconfig for remote access.")
 
@@ -1021,6 +957,7 @@ class KubeBuild(object):
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
         remote_user = self.config.get(node_type, 'remote_user')
         prefix = self.config.get(node_type, 'prefix')
+        template_vars = {}
 
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
@@ -1028,21 +965,19 @@ class KubeBuild(object):
                 self.get_node_domain(),
                 node_index)
 
-            logging.info("Writing CNI configs for node %s.", hostname)
+            logging.info(f"Writing CNI configs for node {hostname}")
             try:
-                template_vars = {
-                    "POD_CIDR": self.node_pod_cidrs[hostname]
-                }
+                template_vars["POD_CIDR"]: self.node_pod_cidrs[hostname]
             except KeyError:
-                logging.fatal("Unable to assign POD_CIDR for host %s. "
-                              "Current POD_CIDR dict: %s.", hostname, self.node_pod_cidrs)
+                logging.fatal("Unable to assign POD_CIDR for host {hostname}. "
+                              "Current POD_CIDR dict: {self.node_pod_cidrs}")
 
             self.write_template(
-                "{TEMPLATE_DIR}/cni/10-bridge.conf",
-                "{WORKER_DIR}/%s-10-bridge.conf" % hostname,
+                f"{self.kubify_dirs['TEMPLATE_DIR']}/cni/10-bridge.conf",
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}-10-bridge.conf",
                 template_vars
             )
-            logging.info("Done writing CNI configs for node %s.", hostname)
+            logging.info(f"Done writing CNI configs for node {hostname}.")
 
     @timeit
     def deploy_cni_configs(self, node_type):
@@ -1056,7 +991,7 @@ class KubeBuild(object):
                 prefix,
                 self.get_node_domain(),
                 node_index)
-            logging.info("Deploying CNI configs to node %s.",  hostname)
+            logging.info(f"Deploying CNI configs to node {hostname}.")
 
             self.control_binaries(
                 hostname,
@@ -1071,13 +1006,13 @@ class KubeBuild(object):
                 'sudo mkdir -p /etc/cni/net.d')
 
             self.deploy_file(
-                "{WORKER_DIR}/%s-10-bridge.conf" % hostname,
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}-10-bridge.conf",
                 remote_user,
                 nodes[node_index],
                 "/etc/cni/net.d/10-bridge.conf")
 
             self.deploy_file(
-                "{TEMPLATE_DIR}/cni/99-loopback.conf",
+                f"{self.kubify_dirs['TEMPLATE_DIR']}/cni/99-loopback.conf",
                 remote_user,
                 nodes[node_index],
                 "/etc/cni/net.d/")
@@ -1089,7 +1024,7 @@ class KubeBuild(object):
                 'containerd',
                 'start')
 
-            logging.info("Finished deploying CNI configs to node %s.",  hostname)
+            logging.info(f"Finished deploying CNI configs to node {hostname}.")
 
     @timeit
     def deploy_etcd(self, node_type):
@@ -1107,7 +1042,7 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
-                'sudo mkdir -p {INSTALL_DIR}/bin {INSTALL_DIR}/certs')
+                f"sudo mkdir -p {self.kubify_dirs['INSTALL_DIR']}/bin {self.kubify_dirs['INSTALL_DIR']}/certs")
 
             self.control_binaries(
                 hostname,
@@ -1117,40 +1052,40 @@ class KubeBuild(object):
                 'stop')
 
             self.deploy_file(
-                '{WORKER_DIR}/%s-etcd.service' % hostname,
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}-etcd.service",
                 remote_user,
                 nodes[node_index],
                 '/etc/systemd/system/etcd.service')
 
             self.deploy_file(
-                '{CA_DIR}/ca.pem',
+                f"{self.kubify_dirs['CA_DIR']}/ca.pem",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/certs/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/certs/")
 
             self.deploy_file(
-                '{ETCD_DIR}/%s-etcd.pem' % hostname,
+                f"{self.kubify_dirs['ETCD_DIR']}/{hostname}-etcd.pem",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/certs/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/certs/")
 
             self.deploy_file(
-                '{ETCD_DIR}/%s-etcd-key.pem' % hostname,
+                f"{self.kubify_dirs['ETCD_DIR']}/{hostname}-etcd-key.pem",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/certs/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/certs/")
 
             self.deploy_file(
-                '{BIN_DIR}/etcd-v%s-linux-amd64/etcd' % self.config.get('general', 'etcd_version'),
+                f"{self.kubify_dirs['BIN_DIR']}/etcd-v{self.config.get('general', 'etcd_version')}-linux-amd64/etcd",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/bin/etcd')
+                f"{self.kubify_dirs['INSTALL_DIR']}/bin/etcd")
 
             self.deploy_file(
-                '{BIN_DIR}/etcd-v%s-linux-amd64/etcdctl' % self.config.get('general', 'etcd_version'),
+                f"{self.kubify_dirs['BIN_DIR']}/etcd-v{self.config.get('general', 'etcd_version')}-linux-amd64/etcdctl",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/bin/etcdctl')
+                f"{self.kubify_dirs['INSTALL_DIR']}/bin/etcdctl")
 
             self.control_binaries(
                 hostname,
@@ -1182,8 +1117,8 @@ class KubeBuild(object):
         logging.info('beginning to apply RBAC cluster role/binding yaml.')
         for cur_file in files:
             self.run_command(
-                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
-                     'apply -f {CONFIG_DIR}/%s' % cur_file))
+                cmd=(f"{self.kubify_dirs['BIN_DIR']}/kubectl --kubeconfig={self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig "
+                     f"apply -f {self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/{cur_file}"))
         logging.info('finished applying RBAC cluster role/binding yaml.')
 
     @timeit
@@ -1198,24 +1133,24 @@ class KubeBuild(object):
                 prefix,
                 self.get_node_domain(),
                 node_index)
-            logging.info('creating kubelet config for %s.', hostname)
+            logging.info(f'creating kubelet config for {hostname}.')
             template_vars = {
                 'HOSTNAME': hostname,
                 'INSTALL_DIR': self.config.get('general', 'install_dir'),
                 'CLUSTER_DNS': self.config.get('general', 'cluster_dns_ip_address')
             }
             self.write_template(
-                '{CONFIG_DIR}/kubelet-config.yaml',
-                '{WORKER_DIR}/%s-kubelet-config.yaml' % hostname,
+                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubelet-config.yaml",
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}-kubelet-config.yaml",
                 template_vars
             )
 
             self.write_template(
-                '{TEMPLATE_DIR}/kubelet.service',
-                '{WORKER_DIR}/%s-kubelet.service' % hostname,
+                f"{self.kubify_dirs['TEMPLATE_DIR']}/kubelet.service",
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}-kubelet.service",
                 template_vars)
 
-            logging.info('finished creating kubelet config for %s.', hostname)
+            logging.info(f'finished creating kubelet config for {hostname}.')
 
     @timeit
     def create_containerd_configs(self):
@@ -1225,8 +1160,8 @@ class KubeBuild(object):
         }
         logging.info('writing out containerd configs.')
         self.write_template(
-            '{CONFIG_DIR}/containerd/containerd.service',
-            '{WORKER_DIR}/containerd.service',
+            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/containerd/containerd.service",
+            f"{self.kubify_dirs['WORKER_DIR']}/containerd.service",
             template_vars)
         logging.info('finished writing out containerd configs.')
 
@@ -1244,12 +1179,12 @@ class KubeBuild(object):
                 self.get_node_domain(),
                 node_index)
 
-            logging.info('deploying containerd to %s.', hostname)
+            logging.info(f'deploying containerd to {hostname}.')
 
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
-                'sudo mkdir -p {INSTALL_DIR}/conf/')
+                f"sudo mkdir -p {self.kubify_dirs['INSTALL_DIR']}/conf/")
 
             self.run_command_via_ssh(
                 remote_user,
@@ -1324,16 +1259,16 @@ class KubeBuild(object):
                 'sudo tar -xvf /tmp/cni-plugins-amd64-v0.6.0.tgz -C /opt/cni/bin/')
 
             self.deploy_file(
-                '{WORKER_DIR}/containerd.service',
+                f"{self.kubify_dirs['WORKER_DIR']}/containerd.service",
                 remote_user,
                 nodes[node_index],
                 '/etc/systemd/system/containerd.service')
 
             self.deploy_file(
-                '{CONFIG_DIR}/containerd/config.toml',
+                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/containerd/config.toml",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/conf/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/conf/")
 
             self.control_binaries(
                 hostname,
@@ -1341,7 +1276,7 @@ class KubeBuild(object):
                 remote_user,
                 'containerd',
                 'start')
-            logging.info('finished deploying containerd to %s.', hostname)
+            logging.info(f"finished deploying containerd to {hostname}.")
 
 
     @timeit
@@ -1357,7 +1292,7 @@ class KubeBuild(object):
                 self.get_node_domain(),
                 node_index)
 
-            logging.info("beginning deploy of kubeproxy to %s.", hostname)
+            logging.info(f"beginning deploy of kubeproxy to {hostname}.")
             self.control_binaries(
                 hostname,
                 nodes[node_index],
@@ -1366,28 +1301,28 @@ class KubeBuild(object):
                 'stop')
 
             self.deploy_file(
-                '{BIN_DIR}/kube-proxy',
+                f"{self.kubify_dirs['BIN_DIR']}/kube-proxy",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/bin/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/bin/")
 
             self.deploy_file(
-                '{PROXY_DIR}/kube-proxy.kubeconfig',
+                f"{self.kubify_dirs['PROXY_DIR']}/kube-proxy.kubeconfig",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/conf/kube-proxy.kubeconfig')
+                f"{self.kubify_dirs['INSTALL_DIR']}/conf/kube-proxy.kubeconfig")
 
             self.deploy_file(
-                '{WORKER_DIR}/kube-proxy.service',
+                f"{self.kubify_dirs['WORKER_DIR']}/kube-proxy.service",
                 remote_user,
                 nodes[node_index],
                 '/etc/systemd/system/kube-proxy.service')
 
             self.deploy_file(
-                '{WORKER_DIR}/kube-proxy.yaml',
+                f"{self.kubify_dirs['WORKER_DIR']}/kube-proxy.yaml",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/conf/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/conf/")
 
             self.control_binaries(
                 hostname,
@@ -1396,7 +1331,7 @@ class KubeBuild(object):
                 'kube-proxy',
                 'start')
 
-            logging.info("finishing deploy of kubeproxy to %s.", hostname)
+            logging.info(f"finishing deploy of kubeproxy to {hostname}.")
 
     @timeit
     def deploy_kubelet(self, node_type):
@@ -1421,43 +1356,43 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 remote_user,
                 nodes[node_index],
-                'sudo mkdir -p {INSTALL_DIR}/bin {INSTALL_DIR}/conf')
+                f"sudo mkdir -p {self.kubify_dirs['INSTALL_DIR']}/bin {self.kubify_dirs['INSTALL_DIR']}/conf")
 
             self.deploy_file(
-                '{BIN_DIR}/kubelet',
+                f"{self.kubify_dirs['BIN_DIR']}/kubelet",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/bin/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/bin/")
 
             self.deploy_file(
-                '{WORKER_DIR}/%s.kubeconfig' % hostname,
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}.kubeconfig",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/conf/kubelet.kubeconfig')
+                f"{self.kubify_dirs['INSTALL_DIR']}/conf/kubelet.kubeconfig")
 
             self.deploy_file(
-                '{WORKER_DIR}/%s-kubelet-config.yaml' % hostname,
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}-kubelet-config.yaml",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/conf/%s-kubelet-config.yaml' % hostname)
+                f"{self.kubify_dirs['INSTALL_DIR']}/conf/{hostname}-kubelet-config.yaml")
 
             self.deploy_file(
-                '{WORKER_DIR}/%s-kubelet.service' % hostname,
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}-kubelet.service",
                 remote_user,
                 nodes[node_index],
                 '/etc/systemd/system/kubelet.service')
 
             self.deploy_file(
-                '{WORKER_DIR}/%s-kubelet.pem' % hostname,
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}-kubelet.pem",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/certs/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/certs/")
 
             self.deploy_file(
-                '{WORKER_DIR}/%s-kubelet-key.pem' % hostname,
+                f"{self.kubify_dirs['WORKER_DIR']}/{hostname}-kubelet-key.pem",
                 remote_user,
                 nodes[node_index],
-                '{INSTALL_DIR}/certs/')
+                f"{self.kubify_dirs['INSTALL_DIR']}/certs/")
 
             self.control_binaries(
                 hostname,
@@ -1473,8 +1408,8 @@ class KubeBuild(object):
         logging.info('creating coredns service config')
 
         self.write_template(
-            '{TEMPLATE_DIR}/core-dns.yaml',
-            '{ADDON_DIR}/core-dns.yaml',
+            f"{self.kubify_dirs['TEMPLATE_DIR']}/core-dns.yaml",
+            f"{self.kubify_dirs['ADDON_DIR']}/core-dns.yaml",
             {'CLUSTER_DNS_IP_ADDRESS': self.config.get(
                 'general',
                 'cluster_dns_ip_address')}
@@ -1490,8 +1425,8 @@ class KubeBuild(object):
         logging.info('deploying coredns')
 
         self.run_command(
-            cmd=('{BIN_DIR}/kubectl --kubeconfig {ADMIN_DIR}/admin.kubeconfig '
-                 'apply -f {ADDON_DIR}/core-dns.yaml'))
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/kubectl --kubeconfig {self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig "
+                 f"apply -f {self.kubify_dirs['ADDON_DIR']}/core-dns.yaml"))
 
         logging.info('finished deploying coredns')
 
@@ -1502,26 +1437,26 @@ class KubeBuild(object):
         """control kubernetes binaries on a host."""
 
         if action == "stop":
-            logging.info('stopping services %s on %s.', services, hostname)
+            logging.info(f'stopping services {services} on {hostname}.')
 
             status_output = self.run_command_via_ssh(
                 remote_user,
                 remote_ip,
-                'sudo systemctl status %s' % services,
+                f'sudo systemctl status {services}',
                 ignore_errors=True,
                 return_output=True)
 
-            logging.debug("STATUS OUTPUT: %s", status_output)
-            if 'could not be found' in status_output:
-                logging.info("Service %s could not be found. Skipping stop.", services)
+            logging.debug(f"STATUS OUTPUT: {status_output}")
+            if "could not be found" in status_output:
+                logging.info(f"Service {services} could not be found. Skipping stop.")
             else:
                 self.run_command_via_ssh(
                     remote_user,
                     remote_ip,
-                    'sudo systemctl stop %s' % services)
+                    f'sudo systemctl stop {services}')
 
         if action == "start":
-            logging.info('starting binaries on %s.', hostname)
+            logging.info(f'starting binaries on {hostname}.')
 
             self.run_command_via_ssh(
                 remote_user,
@@ -1531,16 +1466,16 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 remote_user,
                 remote_ip,
-                'sudo systemctl enable %s'% services)
+                f'sudo systemctl enable {services}')
 
             self.run_command_via_ssh(
                 remote_user,
                 remote_ip,
-                'sudo systemctl start %s' % services)
+                f"sudo systemctl start {services}")
 
     def apply_taints_and_labels(self, node_type):
         """apply various node taints and labels."""
-        logging.info('applying node taints to %s nodes.', node_type)
+        logging.info(f"applying node taints to {node_type} nodes.")
 
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
@@ -1548,17 +1483,15 @@ class KubeBuild(object):
                 self.get_node_domain(),
                 node_index)
 
-            logging.debug('applying node taint to %s.', hostname)
+            logging.debug(f"applying node taint to {hostname}.")
 
             self.run_command(
-                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
-                     'taint nodes --overwrite %(hostname)s '
-                     'key=value:NoSchedule' % {
-                         'hostname': hostname}))
+                cmd=(f"{self.kubify_dirs['BIN_DIR']}/kubectl --kubeconfig={self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig "
+                     f"taint nodes --overwrite {hostname} key=value:NoSchedule"))
+
             self.run_command(
-                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
-                     'label nodes --overwrite %(hostname)s '
-                     'role=controller' % { 'hostname': hostname}))
+                cmd=(f"{self.kubify_dirs['BIN_DIR']}/kubectl --kubeconfig={self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig "
+                     f"label nodes --overwrite {hostname} role=controller"))
 
     @timeit
     def deploy_pod_security_policies(self):
@@ -1567,18 +1500,19 @@ class KubeBuild(object):
                  'pod-security-policies-roles.yaml']
 
         for cur_file in files:
-            logging.info('applying pod security policies: %s', cur_file)
+            logging.info(f'applying pod security policies: {cur_file}.')
             self.run_command(
-                cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
-                     'apply -f {CONFIG_DIR}/%s' % cur_file))
+                cmd=(f"{self.kubify_dirs['BIN_DIR']}/kubectl --kubeconfig={self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig "
+                     f"apply -f {self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/{cur_file}"))
         logging.info('finished applying pod security policies.')
 
     @timeit
     def deploy_kuberouter(self):
         """deploy kube-router."""
         self.run_command(
-            cmd=('{BIN_DIR}/kubectl --kubeconfig={ADMIN_DIR}/admin.kubeconfig '
-                 'apply -f {CONFIG_DIR}/kube-router.yaml'))
+            cmd=(f"{self.kubify_dirs['BIN_DIR']}/kubectl "
+                 f"--kubeconfig={self.kubify_dirs['ADMIN_DIR']}/admin.kubeconfig "
+                 f"apply -f {self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kube-router.yaml"))
 
 def main():
     """main for Kubify script."""
@@ -1586,7 +1520,6 @@ def main():
         description='Install Kubernetes, the hard way.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--action",
-                        required=True,
                         choices=["create_certs", "create_configs", "deploy"],
                         action='append')
     parser.add_argument('--clear_output_dir',
@@ -1632,12 +1565,18 @@ def main():
         sys.exit(1)
 
     start_time = time.time()
-    k8s = KubeBuild(args)
-    k8s.build()
+    try:
+        k8s = KubeBuild(args)
+        k8s.build()
+    except:
+        logging.error("Exception Caught")
+        logging.error(f"args: {args}")
+        logging.error(f"kubify_dirs: {k8s.kubify_dirs}")
+        raise
     end_time = time.time()
     elapsed_time = end_time - start_time
-    logging.info('completed running kubernetes build. Elapsed Time %s.',
-                 time.strftime("%Hh:%Mm:%Ss", time.gmtime(elapsed_time)))
+    elapsed_time_strftime = time.strftime("%Hh:%Mm:%Ss", time.gmtime(elapsed_time))
+    logging.info(f'completed running kubernetes build. Elapsed Time {elapsed_time_strftime}.')
 
 
 if __name__ == '__main__':

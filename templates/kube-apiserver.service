@@ -15,7 +15,6 @@ ExecStart={{ INSTALL_DIR }}/bin/kube-apiserver \
   --bind-address=0.0.0.0 \
   --client-ca-file={{ CERTS_DIR }}/ca.pem \
   --enable-admission-plugins=NamespaceLifecycle,LimitRanger,ServiceAccount,PersistentVolumeClaimResize,DefaultStorageClass,DefaultTolerationSeconds,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ResourceQuota,Priority,PodSecurityPolicy \
-  --enable-swagger-ui=true \
   --etcd-cafile={{ CERTS_DIR }}/ca.pem \
   --etcd-certfile={{ CERTS_DIR }}/{{ HOSTNAME }}-etcd.pem \
   --etcd-keyfile={{ CERTS_DIR }}/{{ HOSTNAME }}-etcd-key.pem \

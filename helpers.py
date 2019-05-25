@@ -22,7 +22,7 @@ def get_ip_from_range(host_index, cidr):
     starting_ip: host_index of IP addresses in cider
 
     """
-    network = ipaddress.ip_network(unicode(cidr))
+    network = ipaddress.ip_network(cidr)
     logging.debug("Computed Network: %s", network)
     hosts = [x.exploded for x in network.hosts()]
 
