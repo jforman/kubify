@@ -103,8 +103,7 @@ class KubeBuild(object):
 
         self.kubify_dirs['BIN_DIR'] = os.path.join(
                 self.kubify_dirs['OUTPUT_DIR'],
-                self.args.kube_ver,
-                'bin')
+                'bin', self.args.kube_ver)
 
         self.kubify_dirs['CA_DIR'] = os.path.join(
             self.kubify_dirs['OUTPUT_DIR'], 'ca')
