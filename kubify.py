@@ -4,7 +4,6 @@ import argparse
 import base64
 import configparser
 import inspect
-import json
 import logging
 import os
 import re
@@ -151,6 +150,7 @@ class KubeBuild(object):
         self.join_worker_nodes()
 
         self.deploy_kuberouter()
+        self.store_configs_locally()
 
     @timeit
     def deploy_container_runtime(self, node_type):
@@ -402,6 +402,44 @@ class KubeBuild(object):
             "sudo kubectl apply --kubeconfig /etc/kubernetes/admin.conf "
             "-f https://raw.githubusercontent.com/cloudnativelabs/kube-router/master/daemonset/kubeadm-kuberouter.yaml")
 
+    @timeit
+    def store_configs_locally(self):
+        """copy configs, certificates, etc to local directory if specified."""
+        if not self.args.local_storage_dir:
+            logging.info("No local storage directory specified.")
+            return
+
+        logging.info(f"Storing local data in {self.args.local_storage_dir}.")
+
+        hostname = helpers.hostname_with_index(
+            self.config.get('controller', 'prefix'),
+            self.get_node_domain(),
+            0)
+
+        self.run_command_via_ssh(
+            self.config.get('controller', 'remote_user'),
+            hostname,
+            f"sudo cp /etc/kubernetes/admin.conf /home/{self.config.get('controller', 'remote_user')}/")
+
+        self.run_command_via_ssh(
+            self.config.get('controller', 'remote_user'),
+            hostname,
+            f"sudo chown {self.config.get('controller', 'remote_user')} "
+            f"/home/{self.config.get('controller', 'remote_user')}/admin.conf ")
+
+        if not os.path.exists(self.args.local_storage_dir):
+            os.makedirs(self.args.local_storage_dir)
+
+        self.run_command(
+            f"scp -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
+            f"{self.config.get('controller', 'remote_user')}@{hostname}:~/admin.conf "
+            f"{self.args.local_storage_dir}/admin.conf")
+
+        self.run_command(
+            f"scp -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
+            f"{self.config.get('controller', 'remote_user')}@{hostname}:/usr/bin/kubectl "
+            f"{self.args.local_storage_dir}/kubectl")
+
 
 def main():
     """main for Kubify script."""
@@ -419,6 +457,8 @@ def main():
                         help='enable debug-level logging.')
     parser.add_argument('--kubeadm_init_extra_flags',
                         help='Additional flags to add to kubeadm init step.')
+    parser.add_argument('--local_storage_dir',
+                        help='Local on-disk directory to store configs, certificates, etc')
 
     args = parser.parse_args()
 
