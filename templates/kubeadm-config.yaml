@@ -1,7 +1,7 @@
 apiVersion: kubeadm.k8s.io/v1beta2
 kind: ClusterConfiguration
 kubernetesVersion: stable
-controlPlaneEndpoint: "{{api_server_loadbalancer_hostport}}"
+controlPlaneEndpoint: {{api_server_loadbalancer_hostport}}
 networking:
-  serviceSubnet: "{{service_subnet}}"
-  podSubnet: "{{pod_subnet}}"
+  serviceSubnet: {{service_subnet}}
+  podSubnet: {{pod_subnet}}
