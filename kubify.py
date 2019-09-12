@@ -333,7 +333,7 @@ class KubeBuild(object):
                 kubeadm_init_command = (
                     f"sudo kubeadm init "
                     f"--config /tmp/kubeadm-config.yaml "
-                    f"--upload-certs ")
+                    f"--upload-certs")
 
                 if self.args.kubeadm_init_extra_flags:
                     kubeadm_init_command = f"{kubeadm_init_command} {self.args.kubeadm_init_extra_flags}"
