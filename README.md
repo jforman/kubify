@@ -1,37 +1,29 @@
-# Installing Kubernetes, the hard way.
+# Installing Kubernetes, the less hard way.
 
-Based on https://github.com/kelseyhightower/kubernetes-the-hard-way
+A wrapper script which installs Kubernetes masters and workers on Ubuntu-based VM's, complete with kube-router (no kube-proxy) and CoreDNS.
 
-This script is meant to follow Kelsey Hightower's tutorial of installing Kubernetes. It was born out of the fact that I run CoreOS VM's at home on a Ubuntu (sometimes Debian) libvirt/kvm server, and wish to play around with CoreOS+Kubernetes tech at home. None of the other tutorials I found online spent much time on bare-metal, or in this case VM, installs. Most other scripts expected the Kubernetes cluster to live on one of the popular public clouds (GCE/AWS/Azure), and I wanted to do have my own install on my own terms.
-
-Why not the public cloud? Mostly because of cost. I've already got a beefy VM server at home. Why not use it?
+Starting off with a freshly installed Ubuntu Cloud VM image (see my [virthelper](https://github.com/jforman/virthelper) script), install Kubernetes using Kubeadm. This wrapper automates installing controller and worker nodes, removing kube-proxy (in favor of [kube-router](https://github.com/cloudnativelabs/kube-router)).
 
 ## Script Usage
 
 ```bash
-usage: kubify.py [-h] --action {create_certs,create_configs,deploy}
-                 [--clear_output_dir] --config CONFIG [--dry_run] [--debug]
-                 [--kube_ver KUBE_VER] --output_dir OUTPUT_DIR
-                 [--skip_tools_download]
+usage: kubify.py [-h] --config CONFIG [--dry_run] [--debug]
+                 [--kubeadm_init_extra_flags KUBEADM_INIT_EXTRA_FLAGS]
+                 [--local_storage_dir LOCAL_STORAGE_DIR]
 
-Install Kubernetes, the hard way.
+Install Kubernetes cluster with kubeadm
 
 optional arguments:
   -h, --help            show this help message and exit
-  --action {create_certs,create_configs,deploy}
-  --clear_output_dir    delete the output directory before generating configs
-                        (default: False)
   --config CONFIG       kubify config file. (default: None)
   --dry_run             dont actually do anything. (default: False)
   --debug               enable debug-level logging. (default: False)
-  --kube_ver KUBE_VER   kubernetes version (default: 1.14.0)
-  --output_dir OUTPUT_DIR
-                        base directory where generated configs will be stored.
+  --kubeadm_init_extra_flags KUBEADM_INIT_EXTRA_FLAGS
+                        Additional flags to add to kubeadm init step.
                         (default: None)
-  --skip_tools_download
-                        Skip downloading the Kubernetes and cfssl binaries
-                        (default: False)
-
+  --local_storage_dir LOCAL_STORAGE_DIR
+                        Local on-disk directory to store configs,
+                        certificates, etc (default: None)
 ```
 ## Configuration File
 
@@ -39,33 +31,25 @@ Below is an example kubify.conf config file, with a minimum configuration specif
 
 ```bash
 # Kubify Configuration File
+# Prod
 # Cluster CIDR: IP range used by inter-pod inter-cluster transit.
 # Service CIDR: IP range used by Services on the cluster.
-# Create encryption key: head -c 32 /dev/urandom | base64
 
 [general]
-api_server_ip_address=10.10.2.119
-cluster_name=corea
+api_server_loadbalancer_hostport=10.10.200.104:443
+cluster_name=prod
 domain_name=foo.basement.net
-install_dir=/opt/kubernetes
-ssl_certs_dir=/etc/ssl/certs/
-cluster_cidr=10.244.0.0/16
-service_cidr=10.122.0.0/16
+pod_subnet=10.88.0.0/16
+service_subnet=10.122.0.0/16
 cluster_dns_ip_address=10.122.0.10
-etcd_version=3.3.9
-encryption_key=YOUSHOULDCHANGETHISSEEHOWTOABOVE
 
 [controller]
 remote_user=ubuntu
-prefix=proda-controller
-ip_addresses=10.10.0.125,10.10.0.126,10.10.0.127
+prefix=prod-controller
+ip_addresses=10.10.200.105,10.10.200.106,10.10.200.107
 
 [worker]
 remote_user=ubuntu
-prefix=proda-worker
-ip_addresses=10.10.0.110,10.10.0.111,10.10.0.112,10.10.0.113,10.10.0.114
+prefix=prod-worker
+ip_addresses=10.10.200.108,10.10.200.109,10.10.200.110
 ```
-
-### Misc
-
-What kubernetes versions exist? https://github.com/kubernetes/kubernetes/releases
