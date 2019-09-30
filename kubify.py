@@ -12,7 +12,7 @@ import string
 import subprocess
 import sys
 import time
-import urllib.request, urllib.parse, urllib.error
+import urllib.request
 
 import helpers
 
@@ -63,6 +63,34 @@ class KubeBuild(object):
     def get_node_count(self, node_type):
         """get number of nodes of a particular type."""
         return len(self.get_node_ip_addresses(node_type).split(','))
+
+    def get_remote_k8s_version(self, version=None):
+        """https://dl.k8s.io/release/stable-1.txt"""
+        """if given a """
+        if version is None:
+            version = self.args.k8s_version
+        f = urllib.request.urlopen(f"https://dl.k8s.io/release/{version}.txt")
+        ver_string = f.read().decode().strip()
+        # TODO: convert to string and strip newlines, etc.
+        # Read it into a string?
+        return ver_string
+
+    def get_k8s_version(self):
+        """parse the requested kubernetes version into."""
+        if (self.args.k8s_version.startswith('latest-') or
+            self.args.k8s_version.startswith('stable-')):
+            raw_version = self.get_remote_k8s_version()
+        else:
+            raw_version = self.args.k8s_version
+
+        RE_VER = re.compile(r'^v?(?P<major>\d+)\.(?P<minor>\d+)\.?(?P<patch>\d+)?$')
+        version = RE_VER.search(raw_version)
+        if not version:
+            logging.critical(f"Could not parse version from: {raw_version}")
+            raise
+        logging.info(f"parsed version: {version.groupdict()}")
+
+        return version.groupdict()
 
     @timeit
     def set_k8s_paths(self):
@@ -198,6 +226,7 @@ class KubeBuild(object):
     def deploy_container_runtime(self, node_type):
         """deploy container runtime on nodes of node_type."""
         nodes = self.config.get(node_type, 'ip_addresses').split(',')
+        k8s_version = self.get_k8s_version()
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
                 self.config.get(node_type, 'prefix'),
@@ -230,7 +259,7 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 nodes[node_index],
-                'sudo apt install -y containernetworking-plugins cri-o-1.15')
+                f'sudo apt install -y containernetworking-plugins cri-o-{k8s_version["major"]}.{k8s_version["minor"]}')
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/crio/crio.conf",
@@ -357,6 +386,7 @@ class KubeBuild(object):
         kubeadm_join_command = ""
         kubeadm_certificate_key = ""
 
+        k8s_version = self.get_k8s_version()
 
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
@@ -385,6 +415,7 @@ class KubeBuild(object):
                 kubeadm_init_command = (
                     f"sudo kubeadm init "
                     f"--config /tmp/kubeadm-config.yaml "
+                    f"--kubernetes-version {k8s_version['major']}.{k8s_version['minor']} "
                     f"--upload-certs")
 
                 if self.args.kubeadm_init_extra_flags:
@@ -577,6 +608,9 @@ def main():
     parser.add_argument('--debug',
                         action='store_true',
                         help='enable debug-level logging.')
+    parser.add_argument('--k8s_version',
+                        default='stable-1',
+                        help='Kubernetes version to install.')
     parser.add_argument('--kubeadm_init_extra_flags',
                         help='Additional flags to add to kubeadm init step.')
     parser.add_argument('--local_storage_dir',
