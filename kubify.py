@@ -427,13 +427,16 @@ class KubeBuild(object):
                     kubeadm_init_command,
                     return_output=True)
 
-                RE_TOKEN = re.compile(r'--token (\S+)', re.MULTILINE)
-                RE_DISCOVERY_TOKEN = re.compile(r'--discovery-token-ca-cert-hash (\S+)')
-                RE_CERTIFICATE_KEY = re.compile(r'--certificate-key (\S+)')
+                if self.args.dry_run:
+                    logging.info("DRYRUN: Would have parse kubeadm init output.")
+                else:
+                    RE_TOKEN = re.compile(r'--token (\S+)', re.MULTILINE)
+                    RE_DISCOVERY_TOKEN = re.compile(r'--discovery-token-ca-cert-hash (\S+)')
+                    RE_CERTIFICATE_KEY = re.compile(r'--certificate-key (\S+)')
 
-                self.join_token = RE_TOKEN.search(kubeadm_output).group(1)
-                self.discovery_token_ca_cert_hash = RE_DISCOVERY_TOKEN.search(kubeadm_output).group(1)
-                self.certificate_key = RE_CERTIFICATE_KEY.search(kubeadm_output).group(1)
+                    self.join_token = RE_TOKEN.search(kubeadm_output).group(1)
+                    self.discovery_token_ca_cert_hash = RE_DISCOVERY_TOKEN.search(kubeadm_output).group(1)
+                    self.certificate_key = RE_CERTIFICATE_KEY.search(kubeadm_output).group(1)
 
 
             else:
