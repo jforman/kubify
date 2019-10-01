@@ -189,155 +189,144 @@ class KubeBuild(object):
         self.reboot_hosts('controller')
         self.reboot_hosts('worker')
 
-    @timeit
-    def reboot_hosts(self, node_type):
-        """reboot a set of hosts."""
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
+    def get_nodes(self, node_type):
+        """given a node type, return a list of hosts of that node type."""
+        nodes = []
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
                 self.config.get(node_type, 'prefix'),
                 self.get_node_domain(),
                 node_index)
-            logging.info(f"rebooting host {hostname}.")
+            nodes.append(hostname)
+        return nodes
 
+    @timeit
+    def reboot_hosts(self, node_type):
+        """reboot a set of hosts."""
+        for node in self.get_nodes(node_type):
+            logging.info(f"rebooting host {node}.")
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 'sudo shutdown -r now',
                 ignore_errors=True)
 
     @timeit
     def upgrade_kernel(self, node_type):
         """upgrade kernel on host machine."""
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
-        for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(
-                self.config.get(node_type, 'prefix'),
-                self.get_node_domain(),
-                node_index)
-            logging.info(f"upgrading kernel on host {hostname}.")
-
+        for node in self.get_nodes(node_type):
+            logging.info(f"upgrading kernel on host {node}.")
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 'sudo DEBIAN_FRONTEND=noninteractive apt install -y -q linux-image-5.0.0-27-generic')
 
     @timeit
     def deploy_container_runtime(self, node_type):
         """deploy container runtime on nodes of node_type."""
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
         k8s_version = self.get_k8s_version()
-        for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(
-                self.config.get(node_type, 'prefix'),
-                self.get_node_domain(),
-                node_index)
-            logging.info(f"deploying container runtime to {hostname}.")
+        for node in self.get_nodes(node_type):
+            logging.info(f"deploying container runtime to {node}.")
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/sysctl.d/99-kubernetes-cri.conf",
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "/etc/sysctl.d/99-kubernetes-cri.conf")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 'sudo sysctl --system')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 'sudo apt install -y software-properties-common')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 'sudo add-apt-repository -y ppa:projectatomic/ppa',
                 ignore_errors=True)
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 f'sudo apt install -y containernetworking-plugins cri-o-{k8s_version["major"]}.{k8s_version["minor"]}')
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/crio/crio.conf",
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "/etc/crio/crio.conf")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 'sudo rm -rf /etc/cni/net.d/*')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 'sudo systemctl enable crio')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 'sudo systemctl restart crio')
 
     @timeit
     def deploy_kubernetes_binaries(self, node_type):
         """deploy container runtime on nodes of node_type."""
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
-        for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(
-                self.config.get(node_type, 'prefix'),
-                self.get_node_domain(),
-                node_index)
-            logging.info(f"deploying kubernetes binaries to {hostname}.")
+        for node in self.get_nodes(node_type):
+            logging.info(f"deploying kubernetes binaries to {node}.")
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/apt/sources.list.d/kubernetes.list",
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "/etc/apt/sources.list.d/kubernetes.list")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 'sudo curl -o /tmp/packages.cloud.google.com-apt-key.gpg -s https://packages.cloud.google.com/apt/doc/apt-key.gpg')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "sudo apt-key add /tmp/packages.cloud.google.com-apt-key.gpg")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "sudo apt update")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "sudo apt install -y kubelet kubeadm kubectl")
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/default/kubelet",
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "/etc/default/kubelet")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "sudo systemctl daemon-reload")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "sudo systemctl restart kubelet")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "sudo apt-mark hold kubelet kubeadm kubectl")
 
 
@@ -382,20 +371,17 @@ class KubeBuild(object):
     def initialize_control_plane(self):
         """initialize the kubernetes cluster control plane."""
         node_type = 'controller'
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
         kubeadm_join_command = ""
         kubeadm_certificate_key = ""
+        initialized_first_node = False
 
         k8s_version = self.get_k8s_version()
 
-        for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(
-                self.config.get(node_type, 'prefix'),
-                self.get_node_domain(),
-                node_index)   
-            logging.info(f"deploying control plane {hostname}.")
+        for node in self.get_nodes(node_type):
+            logging.info(f"deploying control plane {node}.")
 
-            if node_index == 0:
+            if not initialized_first_node:
+                # Only execute these commands if the first node has not been initialized yet.
 
                 self.write_template(
                     f"{self.kubify_dirs['TEMPLATE_DIR']}/kubeadm-config.yaml",
@@ -409,7 +395,7 @@ class KubeBuild(object):
                 self.deploy_file(
                     f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubeadm-config.yaml",
                     self.config.get('controller', 'remote_user'),
-                    hostname,
+                    node,
                     '/tmp/kubeadm-config.yaml')
 
                 kubeadm_init_command = (
@@ -423,7 +409,7 @@ class KubeBuild(object):
 
                 kubeadm_output = self.run_command_via_ssh(
                     self.config.get(node_type, 'remote_user'),
-                    hostname,
+                    node,
                     kubeadm_init_command,
                     return_output=True)
 
@@ -438,11 +424,12 @@ class KubeBuild(object):
                     self.discovery_token_ca_cert_hash = RE_DISCOVERY_TOKEN.search(kubeadm_output).group(1)
                     self.certificate_key = RE_CERTIFICATE_KEY.search(kubeadm_output).group(1)
 
+                initialized_first_node = True
 
             else:
                 self.run_command_via_ssh(
                     self.config.get(node_type, 'remote_user'),
-                    hostname,
+                    node,
                     f"sudo kubeadm join {self.config.get('general', 'api_server_loadbalancer_hostport')} "
                     f"--token {self.join_token} "
                     f"--discovery-token-ca-cert-hash {self.discovery_token_ca_cert_hash} "
@@ -453,19 +440,12 @@ class KubeBuild(object):
     @timeit
     def join_worker_nodes(self):
         """join the worker nodes to the cluster."""
-        node_type = 'worker'
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
-
-        for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(
-                self.config.get(node_type, 'prefix'),
-                self.get_node_domain(),
-                node_index)
-            logging.info(f"adding worker node at {hostname}.")
+        for node in self.get_nodes('worker'):
+            logging.info(f"adding worker node at {node}.")
 
             self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                hostname,
+                self.config.get('worker', 'remote_user'),
+                node,
                 f"sudo kubeadm join {self.config.get('general', 'api_server_loadbalancer_hostport')} "
                 f"--token {self.join_token} "
                 f"--discovery-token-ca-cert-hash {self.discovery_token_ca_cert_hash} ")
@@ -473,33 +453,27 @@ class KubeBuild(object):
     @timeit
     def clear_iptables(self, node_type):
         """clear iptables of set of nodes."""
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
-
-        for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(
-                self.config.get(node_type, 'prefix'),
-                self.get_node_domain(),
-                node_index)
-            logging.info(f"clearing iptables on node {hostname}.")
+        for node in self.get_nodes(node_type):
+            logging.info(f"clearing iptables on node {node}.")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                hostname,
+                node,
                 f"sudo iptables -F")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                hostname,
+                node,
                 f"sudo iptables -X")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                hostname,
+                node,
                 f"sudo iptables -F -t nat")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                hostname,
+                node,
                 f"sudo iptables -X -t nat")
 
     @timeit
@@ -572,28 +546,23 @@ class KubeBuild(object):
     @timeit
     def deploy_kube_router_system_networkd(self, node_type):
         """deploy kube-router systemd-network configuration files."""
-        nodes = self.config.get(node_type, 'ip_addresses').split(',')
-        for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(
-                self.config.get(node_type, 'prefix'),
-                self.get_node_domain(),
-                node_index)
-            logging.info(f"deploying kube-router systemd-network config to {hostname}.")
+        for node in self.get_nodes(node_type):
+            logging.info(f"deploying kube-router systemd-network config to {node}.")
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/systemd/network/50-kube-router.network",
                 self.config.get(node_type, 'remote_user'),
-                nodes[node_index],
+                node,
                 "/etc/systemd/network/50-kube-router.network")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                hostname,
+                node,
                 f"sudo systemctl daemon-reload")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                hostname,
+                node,
                 f"sudo systemctl restart systemd-networkd")
 
 
