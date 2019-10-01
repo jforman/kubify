@@ -159,7 +159,7 @@ class KubeBuild(object):
             template_vars)
 
         if self.args.dry_run:
-            logging.info(f"DRYRUN: would have written template "
+            logging.info(f"DRYRUN: Write template "
                          f"{input_template} to {output_path}")
         else:
             with open(output_path, 'w') as output_file:
@@ -349,7 +349,7 @@ class KubeBuild(object):
         output = ""
 
         if self.args.dry_run:
-            logging.info(f"DRYRUN: would have run {' '.join(command_list)}")
+            logging.info(f"DRYRUN: Execute: {' '.join(command_list)}")
         else:
             try:
                 logging.debug(f"running {' '.join(command_list)}")
@@ -428,7 +428,7 @@ class KubeBuild(object):
                     return_output=True)
 
                 if self.args.dry_run:
-                    logging.info("DRYRUN: Would have parse kubeadm init output.")
+                    logging.info("DRYRUN: Parse kubeadm init output.")
                 else:
                     RE_TOKEN = re.compile(r'--token (\S+)', re.MULTILINE)
                     RE_DISCOVERY_TOKEN = re.compile(r'--discovery-token-ca-cert-hash (\S+)')
