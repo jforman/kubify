@@ -1,0 +1,22 @@
+# Kubify Configuration File
+# Prod
+# Cluster CIDR: IP range used by inter-pod inter-cluster transit.
+# Service CIDR: IP range used by Services on the cluster.
+
+[general]
+api_server_loadbalancer_hostport=10.10.123.1:443
+cluster_name=prod
+domain_name=server.basement.net
+pod_subnet=10.88.0.0/16
+service_subnet=10.140.0.0/16
+cluster_dns_ip_address=10.140.0.10
+
+[controller]
+remote_user=ubuntu
+prefix=prod-controller
+ip_addresses=10.10.123.138,10.10.123.139,10.10.123.140
+
+[worker]
+remote_user=ubuntu
+prefix=prod-worker
+ip_addresses=10.10.123.141,10.10.123.142,10.10.123.143

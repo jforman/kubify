@@ -1,3 +1,4 @@
 *~
+*.conf
 *.pyc
 configs/kubeadm-config.yaml
