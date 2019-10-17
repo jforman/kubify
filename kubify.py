@@ -88,9 +88,14 @@ class KubeBuild(object):
         if not version:
             logging.critical(f"Could not parse version from: {raw_version}")
             raise
-        logging.info(f"parsed version: {version.groupdict()}")
+        version_dict = version.groupdict()
+        logging.info(f"parsed kubernetes version: {version_dict}.")
+        if version_dict['patch'] is None:
+            # If a patch version was not passed, set it to zero by default.
+            version_dict['patch'] = 0
+        logging.info(f"computed kubernetes version: {version_dict}")
 
-        return version.groupdict()
+        return version_dict
 
     @timeit
     def set_k8s_paths(self):
@@ -253,7 +258,7 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                f'sudo apt install -y containernetworking-plugins cri-o-{k8s_version["major"]}.{k8s_version["minor"]}')
+                f'sudo apt install -y cri-o-{k8s_version["major"]}.{k8s_version["minor"]}')
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/crio/crio.conf",
@@ -279,6 +284,9 @@ class KubeBuild(object):
     @timeit
     def deploy_kubernetes_binaries(self, node_type):
         """deploy container runtime on nodes of node_type."""
+        k8s_version_dict = self.get_k8s_version()
+        k8s_version = f"{k8s_version_dict['major']}.{k8s_version_dict['minor']}.{k8s_version_dict['patch']}"
+
         for node in self.get_nodes(node_type):
             logging.info(f"deploying kubernetes binaries to {node}.")
 
@@ -306,7 +314,7 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                "sudo apt install -y kubelet kubeadm kubectl")
+                f"sudo apt install -y kubelet={k8s_version}-00 kubeadm={k8s_version}-00 kubectl={k8s_version}-00")
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/default/kubelet",
@@ -390,6 +398,7 @@ class KubeBuild(object):
                         'api_server_loadbalancer_hostport': self.config.get('general', 'api_server_loadbalancer_hostport'),
                         'service_subnet': self.config.get('general', 'service_subnet'),
                         'pod_subnet': self.config.get('general', 'pod_subnet'),
+                        'kubernetes_version': f"{k8s_version['major']}.{k8s_version['minor']}.{k8s_version['patch']}",
                     })
 
                 self.deploy_file(
@@ -401,7 +410,6 @@ class KubeBuild(object):
                 kubeadm_init_command = (
                     f"sudo kubeadm init "
                     f"--config /tmp/kubeadm-config.yaml "
-                    f"--kubernetes-version {k8s_version['major']}.{k8s_version['minor']} "
                     f"--upload-certs")
 
                 if self.args.kubeadm_init_extra_flags:
