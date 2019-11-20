@@ -307,7 +307,7 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                f"sudo apt install -y kubelet={k8s_version}-00 kubeadm={k8s_version}-00 kubectl={k8s_version}-00")
+                f"sudo apt install -y kubelet={k8s_version}-00 kubeadm={k8s_version}-00 kubectl={k8s_version}-00 nfs-common")
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/default/kubelet",
