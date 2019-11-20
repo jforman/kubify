@@ -210,16 +210,6 @@ class KubeBuild(object):
                 ignore_errors=True)
 
     @timeit
-    def upgrade_kernel(self, node_type):
-        """upgrade kernel on host machine."""
-        for node in self.get_nodes(node_type):
-            logging.info(f"upgrading kernel on host {node}.")
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                'sudo DEBIAN_FRONTEND=noninteractive apt install -y -q linux-image-5.0.0-27-generic')
-
-    @timeit
     def deploy_container_runtime(self, node_type):
         """deploy container runtime on nodes of node_type."""
         k8s_version = self.get_k8s_version()
