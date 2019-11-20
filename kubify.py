@@ -174,12 +174,8 @@ class KubeBuild(object):
     @timeit
     def build(self):
         """main build sequencer function."""
-        self.deploy_kube_router_system_networkd('controller')
-        self.deploy_kube_router_system_networkd('worker')
         self.deploy_container_runtime('controller')
         self.deploy_container_runtime('worker')
-        self.upgrade_kernel('controller')
-        self.upgrade_kernel('worker')
 
         self.deploy_kubernetes_binaries('controller')
         self.deploy_kubernetes_binaries('worker')
@@ -187,10 +183,7 @@ class KubeBuild(object):
         self.join_worker_nodes()
         self.store_configs_locally()
 
-        self.delete_kube_proxy()
-        self.clear_iptables('controller')
-        self.clear_iptables('worker')
-        self.deploy_kuberouter()
+        self.deploy_flannel()
         self.reboot_hosts('controller')
         self.reboot_hosts('worker')
 
@@ -459,59 +452,13 @@ class KubeBuild(object):
                 f"--discovery-token-ca-cert-hash {self.discovery_token_ca_cert_hash} ")
 
     @timeit
-    def clear_iptables(self, node_type):
-        """clear iptables of set of nodes."""
-        for node in self.get_nodes(node_type):
-            logging.info(f"clearing iptables on node {node}.")
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                f"sudo iptables -F")
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                f"sudo iptables -X")
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                f"sudo iptables -F -t nat")
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                f"sudo iptables -X -t nat")
-
-    @timeit
-    def deploy_kuberouter(self):
-        """deploy kuberouter to cluster."""
-        logging.info(f"deploying kuberouter to kubernetes cluster.")
+    def deploy_flannel(self):
+        """deploy flannel to cluster."""
+        logging.info(f"deploying flanel to kubernetes cluster.")
         self.run_command(
             f"{self.args.local_storage_dir}/kubectl apply "
             f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-            f"-f https://raw.githubusercontent.com/cloudnativelabs/kube-router/master/daemonset/kubeadm-kuberouter-all-features.yaml")
-
-    @timeit
-    def delete_kube_proxy(self):
-        """delete kube-proxy."""
-        kubectl_output = self.run_command(
-            f"{self.args.local_storage_dir}/kubectl "
-            f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-            f"get ds kube-proxy -n kube-system "
-            f"--ignore-not-found",
-            return_output=True)
-
-        if not kubectl_output:
-            logging.info("kube-proxy daemonset not found.")
-            return
-
-        logging.info(f"removing kube-proxy daemonset.")
-        self.run_command(
-            f"{self.args.local_storage_dir}/kubectl "
-            f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-            f"--namespace kube-system delete ds kube-proxy")
+            f"-f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml")
 
     @timeit
     def store_configs_locally(self):
@@ -550,29 +497,6 @@ class KubeBuild(object):
             f"scp -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
             f"{self.config.get('controller', 'remote_user')}@{hostname}:/usr/bin/kubectl "
             f"{self.args.local_storage_dir}/kubectl")
-
-    @timeit
-    def deploy_kube_router_system_networkd(self, node_type):
-        """deploy kube-router systemd-network configuration files."""
-        for node in self.get_nodes(node_type):
-            logging.info(f"deploying kube-router systemd-network config to {node}.")
-
-            self.deploy_file(
-                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/systemd/network/50-kube-router.network",
-                self.config.get(node_type, 'remote_user'),
-                node,
-                "/etc/systemd/network/50-kube-router.network")
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                f"sudo systemctl daemon-reload")
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                f"sudo systemctl restart systemd-networkd")
-
 
 def main():
     """main for Kubify script."""
