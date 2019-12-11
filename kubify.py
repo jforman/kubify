@@ -525,6 +525,9 @@ def main():
                          'with --config')
         sys.exit(1)
 
+    if not os.path.exists(args.local_storage_dir):
+        os.makedirs(args.local_storage_dir)
+
     start_time = time.time()
     try:
         k8s = KubeBuild(args)
