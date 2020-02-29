@@ -174,18 +174,25 @@ class KubeBuild(object):
     @timeit
     def build(self):
         """main build sequencer function."""
-        self.deploy_container_runtime('controller')
-        self.deploy_container_runtime('worker')
 
-        self.deploy_kubernetes_binaries('controller')
-        self.deploy_kubernetes_binaries('worker')
-        self.initialize_control_plane()
-        self.join_worker_nodes()
-        self.store_configs_locally()
+        logging.info(f"Executing kubify command: {self.args.command}")
+        if self.args.command == 'install':
+            self.deploy_container_runtime('controller')
+            self.deploy_container_runtime('worker')
 
-        self.deploy_flannel()
-        self.reboot_hosts('controller')
-        self.reboot_hosts('worker')
+            self.deploy_kubernetes_binaries('controller')
+            self.deploy_kubernetes_binaries('worker')
+            self.initialize_control_plane()
+            self.join_worker_nodes()
+            self.store_configs_locally()
+
+            self.deploy_flannel()
+            self.reboot_hosts('controller')
+            self.reboot_hosts('worker')
+        elif self.args.command == 'upgrade':
+            pass
+        else:
+            logging.info("No command specified.")
 
     def get_nodes(self, node_type):
         """given a node type, return a list of hosts of that node type."""
@@ -493,6 +500,9 @@ def main():
     parser = argparse.ArgumentParser(
         description='Install Kubernetes cluster with kubeadm',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('command', type=str,
+                        choices=['install','upgrade'],
+                        help='kubify command to perform')
     parser.add_argument('--config',
                         required=True,
                         help='kubify config file.')
