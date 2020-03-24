@@ -172,6 +172,44 @@ class KubeBuild(object):
             with open(output_path, 'w') as output_file:
                 output_file.write(output)
 
+    @timeit
+    def check_upgrade_viability(self, dest_k8s_ver):
+        """given a disred k8s version, return true if we can upgrade to it."""
+        logging.info(f"checking status of nodes to see if we can upgrade to {dest_k8s_ver}.")
+
+        if self.args.dry_run:
+            logging.info("DRY RUN: Would have parsed nodes yaml to get versions to make sure we can upgrade.")
+            return
+
+        kubectl_getnodes_output = self.run_command(
+            f"{self.args.local_storage_dir}/kubectl "
+            f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+            "get nodes -o yaml",
+            return_output=True)
+        nodes_yaml = yaml.safe_load(kubectl_getnodes_output)
+        node_versions = []
+        for cur_node in nodes_yaml['items']:
+            node_name = cur_node['metadata']['labels']['kubernetes.io/hostname']
+            node_ver = cur_node['status']['nodeInfo']['kubeletVersion']
+            node_versions.append(node_ver)
+            logging.info(f"Found node {node_name} running kubelet version {node_ver}.")
+        node_versions = set(node_versions)
+        dest_k8s_ver = self.get_k8s_version()
+
+        # TODO: add logic to bail when there are nodes of two different minor versions.
+        # this is an un-upgradable scenario because one could be skipping a minor version.
+        for c in node_versions:
+            c_ver = RE_VER.search(c)
+            logging.debug(f"current node version: {c_ver.groupdict()}")
+            if c_ver is None:
+                logging.fatal(f'unable to determine node version dictionary: {c}')
+            if dest_k8s_ver['major'] != c_ver['major']:
+                logging.fatal(f'attempting an upgrade across major versions. not supported yet. '
+                              f'destination: {dest_k8s_ver}, found: {c}')
+            minor_ver_diff = int(dest_k8s_ver['minor']) - int(c_ver['minor'])
+            if minor_ver_diff > 1:
+                logging.fatal('attempting to skip minor version upgrade. currently unsupported by kubeadm.')
+        return True
 
     @timeit
     def build(self):
@@ -192,7 +230,7 @@ class KubeBuild(object):
             self.reboot_hosts('controller')
             self.reboot_hosts('worker')
         elif self.args.command == 'upgrade':
-            pass
+            self.check_upgrade_viability(self.args.k8s_version)
         else:
             logging.info("No command specified.")
 
