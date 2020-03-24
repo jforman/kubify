@@ -208,7 +208,8 @@ class KubeBuild(object):
                               f'destination: {dest_k8s_ver}, found: {c}')
             minor_ver_diff = int(dest_k8s_ver['minor']) - int(c_ver['minor'])
             if minor_ver_diff > 1:
-                logging.fatal('attempting to skip minor version upgrade. currently unsupported by kubeadm.')
+                logging.exception('attempting to skip minor version upgrade. currently unsupported by kubeadm.')
+                raise
         return True
 
     @timeit
