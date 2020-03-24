@@ -16,6 +16,8 @@ import urllib.request
 
 import helpers
 
+RE_VER = re.compile(r'^v?(?P<major>\d+)\.(?P<minor>\d+)\.?(?P<patch>\d+).*?$')
+
 
 
 class KubeBuild(object):
