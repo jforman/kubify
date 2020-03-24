@@ -586,7 +586,6 @@ def main():
         logging.error("Exception Caught")
         logging.error(f"args: {args}")
         logging.error(f"kubify_dirs: {k8s.kubify_dirs}")
-        raise
     end_time = time.time()
     elapsed_time = end_time - start_time
     elapsed_time_strftime = time.strftime("%Hh:%Mm:%Ss", time.gmtime(elapsed_time))
