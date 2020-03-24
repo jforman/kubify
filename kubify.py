@@ -582,14 +582,14 @@ def main():
     try:
         k8s = KubeBuild(args)
         k8s.build()
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        elapsed_time_strftime = time.strftime("%Hh:%Mm:%Ss", time.gmtime(elapsed_time))
+        logging.info(f'completed running kubernetes build. Elapsed Time {elapsed_time_strftime}.')
     except:
         logging.error("Exception Caught")
         logging.error(f"args: {args}")
         logging.error(f"kubify_dirs: {k8s.kubify_dirs}")
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    elapsed_time_strftime = time.strftime("%Hh:%Mm:%Ss", time.gmtime(elapsed_time))
-    logging.info(f'completed running kubernetes build. Elapsed Time {elapsed_time_strftime}.')
 
 
 if __name__ == '__main__':
