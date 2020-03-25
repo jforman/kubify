@@ -213,6 +213,49 @@ class KubeBuild(object):
         return True
 
     @timeit
+    def upgrade_nodes(self, node_type):
+        """upgrade a set of nodes to the new kubernetes version."""
+        k8s_version_dict = self.get_k8s_version()
+        k8s_version = f"{k8s_version_dict['major']}.{k8s_version_dict['minor']}.{k8s_version_dict['patch']}"
+
+        for node in self.get_nodes(node_type):
+            logging.info(f"upgrading kubernetes node {node} to {self.get_k8s_version()}.")
+            # TODO: make figuring out the hostname of a node correct.
+            # if it's using fqdn, we should use it.
+            # should we get node names from kubectl get nodes output?
+            node_shortname = node.split('.')[0]
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                f"sudo apt-mark unhold kubeadm && "
+                f"sudo apt update && "
+                f"sudo apt install -y kubeadm={k8s_version}-00 && "
+                f"sudo apt-mark hold kubeadm")
+
+            self.run_command(
+                f"{self.args.local_storage_dir}/kubectl "
+                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+                f"drain {node_shortname} --ignore-daemonsets --delete-local-data")
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                f"sudo kubeadm upgrade node")
+
+            self.upgrade_kubernetes_binaries(node_type, specific_node=node)
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                f"sudo systemctl restart kubelet")
+
+            self.run_command(
+                f"{self.args.local_storage_dir}/kubectl "
+                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+                f"uncordon {node_shortname}")
+
+    @timeit
     def upgrade_control_plane(self, k8s_ver):
         """upgrade k8s control plane to new k8s version."""
         first_node_done=False
@@ -300,6 +343,7 @@ class KubeBuild(object):
             self.check_upgrade_viability(self.args.k8s_version)
             self.upgrade_control_plane(self.args.k8s_version)
             self.upgrade_kubernetes_binaries('controller')
+            self.upgrade_nodes('worker')
 
         else:
             logging.info("No command specified.")
@@ -438,13 +482,19 @@ class KubeBuild(object):
                 "sudo apt-mark hold kubelet kubeadm kubectl")
 
     @timeit
-    def upgrade_kubernetes_binaries(self, node_type):
+    def upgrade_kubernetes_binaries(self, node_type, specific_node=None):
         """upgrade kubernetes binaries on nodes of node_type."""
         k8s_version_dict = self.get_k8s_version()
         k8s_version = f"{k8s_version_dict['major']}.{k8s_version_dict['minor']}.{k8s_version_dict['patch']}"
 
         for node in self.get_nodes(node_type):
             logging.info(f"upgrading kubernetes binaries to {node}.")
+            if specific_node is None:
+                pass
+            elif specific_node != node:
+                logging.info(f"Only upgrading specific node: {node}. Skipping.")
+                continue
+
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
