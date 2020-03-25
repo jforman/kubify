@@ -213,6 +213,72 @@ class KubeBuild(object):
         return True
 
     @timeit
+    def upgrade_control_plane(self, k8s_ver):
+        """upgrade k8s control plane to new k8s version."""
+        first_node_done=False
+        node_type='controller'
+        k8s_ver_dict = self.get_k8s_version()
+        ver = f"{k8s_ver_dict['major']}.{k8s_ver_dict['minor']}.{k8s_ver_dict['patch']}"
+
+        for node in self.get_nodes(node_type):
+            # TODO: make figuring out the hostname of a node correct.
+            # if it's using fqdn, we should use it.
+            # should we get node names from kubectl get nodes output?
+            node_shortname = node.split('.')[0]
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                f"sudo apt-mark unhold kubeadm && "
+                f"sudo apt update && "
+                f"sudo apt install -y kubeadm={ver}-00 && "
+                f"sudo apt-mark hold kubeadm")
+
+            remote_k8s_version = self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                "kubeadm version -o yaml",
+                return_output = True)
+
+            if self.args.dry_run:
+                logging.info("DRY RUN: Would have retrieved remote kubeadm version.")
+                logging.info("DRY RUN: Would have checked that remote kubeadm version matched what we expected.")
+            else:
+                remote_version_yaml = yaml.safe_load(remote_k8s_version)
+                remote_version_dict = self.get_k8s_version(
+                    remote_version_yaml['clientVersion']['gitVersion'])
+                if k8s_ver_dict != remote_version_dict:
+                    logging.fatal(f"Installed kubeadm version mismatch. "
+                                    f"Expected: {k8s_ver_dict}. Found: {remote_version_dict}.")
+
+            self.run_command(
+                f"{self.args.local_storage_dir}/kubectl "
+                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+                f"drain {node_shortname} --ignore-daemonsets")
+
+            if first_node_done is False:
+                self.run_command_via_ssh(
+                    self.config.get(node_type, 'remote_user'),
+                    node,
+                    'sudo kubeadm upgrade plan')
+
+                self.run_command_via_ssh(
+                    self.config.get(node_type, 'remote_user'),
+                    node,
+                    f"sudo kubeadm upgrade apply --yes v{ver}")
+                first_node_done = True
+            else:
+                self.run_command_via_ssh(
+                    self.config.get(node_type, 'remote_user'),
+                    node,
+                    f"sudo kubeadm upgrade node")
+
+            self.run_command(
+                f"{self.args.local_storage_dir}/kubectl "
+                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+                f"uncordon {node_shortname}")
+
+    @timeit
     def build(self):
         """main build sequencer function."""
 
@@ -232,6 +298,7 @@ class KubeBuild(object):
             self.reboot_hosts('worker')
         elif self.args.command == 'upgrade':
             self.check_upgrade_viability(self.args.k8s_version)
+            self.upgrade_control_plane(self.args.k8s_version)
         else:
             logging.info("No command specified.")
 
