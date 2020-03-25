@@ -299,6 +299,8 @@ class KubeBuild(object):
         elif self.args.command == 'upgrade':
             self.check_upgrade_viability(self.args.k8s_version)
             self.upgrade_control_plane(self.args.k8s_version)
+            self.upgrade_kubernetes_binaries('controller')
+
         else:
             logging.info("No command specified.")
 
@@ -435,6 +437,26 @@ class KubeBuild(object):
                 node,
                 "sudo apt-mark hold kubelet kubeadm kubectl")
 
+    @timeit
+    def upgrade_kubernetes_binaries(self, node_type):
+        """upgrade kubernetes binaries on nodes of node_type."""
+        k8s_version_dict = self.get_k8s_version()
+        k8s_version = f"{k8s_version_dict['major']}.{k8s_version_dict['minor']}.{k8s_version_dict['patch']}"
+
+        for node in self.get_nodes(node_type):
+            logging.info(f"upgrading kubernetes binaries to {node}.")
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                f"sudo apt-mark unhold kubelet kubectl && "
+                f"sudo apt update && "
+                f"sudo apt install -y kubelet={k8s_version}-00 kubectl={k8s_version}-00 && "
+                f"sudo apt-mark hold kubelet kubectl")
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                "sudo systemctl restart kubelet")
 
     @timeit
     def run_command(self, cmd, return_output=False,
