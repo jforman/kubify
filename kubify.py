@@ -78,15 +78,17 @@ class KubeBuild(object):
         # Read it into a string?
         return ver_string
 
-    def get_k8s_version(self):
+    def get_k8s_version(self, version=None):
         """parse the requested kubernetes version into."""
-        if (self.args.k8s_version.startswith('latest-') or
-            self.args.k8s_version.startswith('stable-')):
-            raw_version = self.get_remote_k8s_version()
+        if version is None:
+            if (self.args.k8s_version.startswith('latest-') or
+                self.args.k8s_version.startswith('stable-')):
+                raw_version = self.get_remote_k8s_version()
+            else:
+                raw_version = self.args.k8s_version
         else:
-            raw_version = self.args.k8s_version
+            raw_version = version
 
-        RE_VER = re.compile(r'^v?(?P<major>\d+)\.(?P<minor>\d+)\.?(?P<patch>\d+)?$')
         version = RE_VER.search(raw_version)
         if not version:
             logging.critical(f"Could not parse version from: {raw_version}")
