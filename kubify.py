@@ -248,11 +248,6 @@ class KubeBuild(object):
 
             self.upgrade_kubernetes_binaries(node_type, specific_node=node)
 
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                f"sudo systemctl restart kubelet")
-
             self.run_command(
                 f"{self.args.local_storage_dir}/kubectl "
                 f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
