@@ -19,8 +19,6 @@ import helpers
 
 RE_VER = re.compile(r'^v?(?P<major>\d+)\.(?P<minor>\d+)\.?(?P<patch>\d+).*?$')
 
-
-
 class KubeBuild(object):
     """define, create, and deploy a kubernetes cluster methods."""
 
@@ -321,32 +319,6 @@ class KubeBuild(object):
         logging.info("finished upgrade_control_plane")
 
     @timeit
-    def build(self):
-        """main build sequencer function."""
-
-        logging.info(f"Executing kubify command: {self.args.command}")
-        if self.args.command == 'install':
-            self.deploy_container_runtime('controller')
-            self.deploy_container_runtime('worker')
-
-            self.deploy_kubernetes_binaries('controller')
-            self.deploy_kubernetes_binaries('worker')
-            self.initialize_control_plane()
-            self.join_worker_nodes()
-            self.store_configs_locally()
-
-            self.deploy_flannel()
-            self.reboot_hosts('controller')
-            self.reboot_hosts('worker')
-        elif self.args.command == 'upgrade':
-            self.check_upgrade_viability(self.args.k8s_version)
-            self.upgrade_control_plane(self.args.k8s_version)
-            self.upgrade_kubernetes_binaries('controller')
-            self.upgrade_nodes('worker')
-
-        else:
-            logging.info("No command specified.")
-
     def get_nodes(self, node_type):
         """given a node type, return a list of hosts of that node type."""
         nodes = []
@@ -370,9 +342,11 @@ class KubeBuild(object):
                 ignore_errors=True)
 
     @timeit
-    def deploy_container_runtime(self, node_type):
+    def deploy_container_runtime(self, node_type, apt_command='install'):
         """deploy container runtime on nodes of node_type."""
         k8s_version = self.get_k8s_version()
+        logging.info(f"beginning container runtime deploy: "
+                     f"node type: {node_type}, apt command: {apt_command}.")
         for node in self.get_nodes(node_type):
             logging.info(f"deploying container runtime to {node}.")
 
@@ -390,39 +364,43 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                'sudo apt install -y software-properties-common')
+                'sudo apt install -y apt-transport-https ca-certificates curl software-properties-common')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                'sudo add-apt-repository -y ppa:projectatomic/ppa',
-                ignore_errors=True)
+                'sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                f'sudo apt install -y cri-o-{k8s_version["major"]}.{k8s_version["minor"]}')
+                'sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"')
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                f'sudo apt update && sudo apt {apt_command} -y containerd.io')
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                'sudo mkdir -p /etc/containerd')
 
             self.deploy_file(
-                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/crio/crio.conf",
+                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/containerd/config.toml",
                 self.config.get(node_type, 'remote_user'),
                 node,
-                "/etc/crio/crio.conf")
+                "/etc/containerd/config.toml")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                'sudo rm -rf /etc/cni/net.d/*')
+                'sudo systemctl enable containerd')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                'sudo systemctl enable crio')
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                'sudo systemctl restart crio')
+                'sudo systemctl restart containerd')
 
     @timeit
     def deploy_kubernetes_binaries(self, node_type):
@@ -673,6 +651,32 @@ class KubeBuild(object):
             f"scp -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
             f"{self.config.get('controller', 'remote_user')}@{hostname}:/usr/bin/kubectl "
             f"{self.args.local_storage_dir}/kubectl")
+
+    @timeit
+    def build(self):
+        """main build sequencer function."""
+
+        logging.info(f"Executing kubify command: {self.args.command}")
+        if self.args.command == 'install':
+            self.deploy_container_runtime('controller')
+            self.deploy_container_runtime('worker')
+            self.deploy_kubernetes_binaries('controller')
+            self.deploy_kubernetes_binaries('worker')
+            self.initialize_control_plane()
+            self.join_worker_nodes()
+            self.store_configs_locally()
+            self.deploy_flannel()
+            self.reboot_hosts('controller')
+            self.reboot_hosts('worker')
+        elif self.args.command == 'upgrade':
+            self.check_upgrade_viability(self.args.k8s_version)
+            self.upgrade_control_plane(self.args.k8s_version)
+            self.deploy_container_runtime('controller', apt_command='upgrade')
+            self.upgrade_kubernetes_binaries('controller')
+            self.deploy_flannel()
+            self.upgrade_nodes('worker')
+            self.deploy_container_runtime('worker', apt_command='upgrade')
+            self.store_configs_locally()
 
 def main():
     """main for Kubify script."""
