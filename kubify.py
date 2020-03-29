@@ -677,7 +677,7 @@ class KubeBuild(object):
 def main():
     """main for Kubify script."""
     parser = argparse.ArgumentParser(
-        description='Install Kubernetes cluster with kubeadm',
+        description='Kubernetes cluster install/upgrade wrapper for kubeadm.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('command', type=str,
                         choices=['install','upgrade'],
