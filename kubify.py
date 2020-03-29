@@ -318,6 +318,7 @@ class KubeBuild(object):
                 f"{self.args.local_storage_dir}/kubectl "
                 f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
                 f"uncordon {node_shortname}")
+        logging.info("finished upgrade_control_plane")
 
     @timeit
     def build(self):
