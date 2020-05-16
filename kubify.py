@@ -17,6 +17,9 @@ import yaml
 
 import helpers
 
+RE_CERTIFICATE_KEY = re.compile(r'--certificate-key (\S+)', re.MULTILINE)
+RE_DISCOVERY_TOKEN = re.compile(r'--discovery-token-ca-cert-hash (\S+)', re.MULTILINE)
+RE_TOKEN = re.compile(r'--token (\S+)', re.MULTILINE)
 RE_VER = re.compile(r'^v?(?P<major>\d+)\.(?P<minor>\d+)\.?(?P<patch>\d+).*?$')
 
 class KubeBuild(object):
@@ -571,10 +574,6 @@ class KubeBuild(object):
                 if self.args.dry_run:
                     logging.info("DRYRUN: Parse kubeadm init output.")
                 else:
-                    RE_TOKEN = re.compile(r'--token (\S+)', re.MULTILINE)
-                    RE_DISCOVERY_TOKEN = re.compile(r'--discovery-token-ca-cert-hash (\S+)')
-                    RE_CERTIFICATE_KEY = re.compile(r'--certificate-key (\S+)')
-
                     self.join_token = RE_TOKEN.search(kubeadm_output).group(1)
                     self.discovery_token_ca_cert_hash = RE_DISCOVERY_TOKEN.search(kubeadm_output).group(1)
                     self.certificate_key = RE_CERTIFICATE_KEY.search(kubeadm_output).group(1)
