@@ -21,6 +21,7 @@ RE_CERTIFICATE_KEY = re.compile(r'--certificate-key (\S+)', re.MULTILINE)
 RE_DISCOVERY_TOKEN = re.compile(r'--discovery-token-ca-cert-hash (\S+)', re.MULTILINE)
 RE_TOKEN = re.compile(r'--token (\S+)', re.MULTILINE)
 RE_VER = re.compile(r'^v?(?P<major>\d+)\.(?P<minor>\d+)\.?(?P<patch>\d+).*?$')
+RE_CERTIFICATE_KEY_REINIT = re.compile(r'Using certificate key:\s+(\S+)', re.MULTILINE)
 
 class KubeBuild(object):
     """define, create, and deploy a kubernetes cluster methods."""
@@ -322,15 +323,29 @@ class KubeBuild(object):
         logging.info("finished upgrade_control_plane")
 
     @timeit
-    def get_nodes(self, node_type):
-        """given a node type, return a list of hosts of that node type."""
+    def get_nodes(self, node_type, node_source=""):
+        """given a node type, return a list of hosts of that node type.
+        if node_source=="config", the nodes are always retrieved from config.
+            needed when adding a node to a pre-existing cluster.
+        """
         nodes = []
+
+        if self.args.node and node_source=="":
+            logging.debug("Getting node information from command line flags.")
+            for node in self.args.node:
+                (new_node_type, new_node_hostname) = node.split(':')
+                if new_node_type == node_type:
+                    nodes.append(new_node_hostname)
+            return nodes
+
+        logging.debug("Getting node information from config.")
         for node_index in range(0, self.get_node_count(node_type)):
             hostname = helpers.hostname_with_index(
                 self.config.get(node_type, 'prefix'),
                 self.get_node_domain(),
                 node_index)
             nodes.append(hostname)
+
         return nodes
 
     @timeit
@@ -455,6 +470,11 @@ class KubeBuild(object):
                 self.config.get(node_type, 'remote_user'),
                 node,
                 "sudo systemctl restart kubelet")
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                "sudo modprobe br_netfilter")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
@@ -605,6 +625,23 @@ class KubeBuild(object):
                 f"--discovery-token-ca-cert-hash {self.discovery_token_ca_cert_hash} ")
 
     @timeit
+    def join_nodes(self, token, discovery_token, node_type, certificate_key=None):
+        cp_flag = ""
+        certificate_key_flag = ""
+        for node in self.get_nodes(node_type):
+            if node_type == "controller":
+                cp_flag = "--control-plane"
+                certificate_key_flag = f"--certificate-key {certificate_key}"
+
+            logging.info(f"Adding node {node} of type {node_type}.")
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                f"sudo kubeadm join {self.config.get('general', 'api_server_loadbalancer_hostport')} "
+                f"--token {token} {cp_flag} {certificate_key_flag} "
+                f"--discovery-token-ca-cert-hash {discovery_token}")
+
+    @timeit
     def deploy_flannel(self):
         """deploy flannel to cluster."""
         logging.info(f"deploying flanel to kubernetes cluster.")
@@ -652,10 +689,42 @@ class KubeBuild(object):
             f"{self.args.local_storage_dir}/kubectl")
 
     @timeit
+    def get_kubeadm_join_tokens(self):
+        """return kubeadm tokens for join command."""
+        node_type = 'controller'
+        for node in self.get_nodes(node_type, node_source="config"):
+            logging.info(f"attempting to obtain join command from {node}.")
+            token_create_output = self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                "sudo kubeadm token create --print-join-command",
+                return_output=True)
+            upload_certs_output = self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                "sudo kubeadm init phase upload-certs --upload-certs",
+                return_output=True)
+            if self.args.dry_run:
+                logging.info(f"DRY RUN: Would have tried to parse tokens from {node}. Returning fake ones.")
+                return "abcdefghijklmnopqrstuvwxyz", "0123456789", "09876543210"
+            try:
+                logging.info(f"Attempting to parse tokens from {node}.")
+                token = RE_TOKEN.search(token_create_output).group(1)
+                discovery_token_ca_cert_hash = RE_DISCOVERY_TOKEN.search(token_create_output).group(1)
+                certificate_key = RE_CERTIFICATE_KEY_REINIT.search(upload_certs_output).group(1)
+                logging.info(f"Successfully parsed tokens from {node}.")
+                return certificate_key, token, discovery_token_ca_cert_hash
+            except:
+                logging.error(f"Unable to parse tokens from controller {node}. Trying next one.")
+        logging.error(f"Unable to parse tokens from any controller nodes. Exiting")
+        sys.exit(1)
+
+    @timeit
     def build(self):
         """main build sequencer function."""
 
         logging.info(f"Executing kubify command: {self.args.command}")
+        # (controller_nodes, worker_nodes) = self.determineNodes(self.args.node)
         if self.args.command == 'install':
             self.deploy_container_runtime('controller')
             self.deploy_container_runtime('worker')
@@ -676,6 +745,16 @@ class KubeBuild(object):
             self.upgrade_nodes('worker')
             self.deploy_container_runtime('worker', apt_command='upgrade')
             self.store_configs_locally()
+        elif self.args.command == 'addnode':
+            self.deploy_container_runtime('controller')
+            self.deploy_container_runtime('worker')
+            self.deploy_kubernetes_binaries('controller')
+            self.deploy_kubernetes_binaries('worker')
+            (cert_key, token, discovery_token) = self.get_kubeadm_join_tokens()
+            self.join_nodes(token, discovery_token, 'controller', certificate_key=cert_key)
+            self.join_nodes(token, discovery_token, 'worker')
+            self.reboot_hosts('controller')
+            self.reboot_hosts('worker')
 
 def main():
     """main for Kubify script."""
@@ -683,7 +762,7 @@ def main():
         description='Kubernetes cluster install/upgrade wrapper for kubeadm.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('command', type=str,
-                        choices=['install','upgrade'],
+                        choices=['addnode','install','upgrade'],
                         help='kubify command to perform')
     parser.add_argument('--config',
                         required=True,
@@ -701,6 +780,9 @@ def main():
                         help='Additional flags to add to kubeadm init step.')
     parser.add_argument('--local_storage_dir',
                         help='Local on-disk directory to store configs, certificates, etc')
+    parser.add_argument('--node',
+                        action='append',
+                        help='Add node to cluster. Form: {controller,worker}:hostname')
 
     args = parser.parse_args()
 
