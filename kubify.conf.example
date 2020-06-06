@@ -13,10 +13,8 @@ cluster_dns_ip_address=10.140.0.10
 
 [controller]
 remote_user=ubuntu
-prefix=prod-controller
 ip_addresses=10.10.123.138,10.10.123.139,10.10.123.140
 
 [worker]
 remote_user=ubuntu
-prefix=prod-worker
 ip_addresses=10.10.123.141,10.10.123.142,10.10.123.143

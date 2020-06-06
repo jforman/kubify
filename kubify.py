@@ -63,11 +63,11 @@ class KubeBuild(object):
 
     def get_node_ip_addresses(self, node_type):
         """get list of node IPs."""
-        return self.config.get(node_type, 'ip_addresses')
+        return self.config.get(node_type, 'ip_addresses').split(',')
 
     def get_node_count(self, node_type):
         """get number of nodes of a particular type."""
-        return len(self.get_node_ip_addresses(node_type).split(','))
+        return len(self.get_node_ip_addresses(node_type))
 
     def get_remote_k8s_version(self, version=None):
         """https://dl.k8s.io/release/stable-1.txt"""
@@ -339,12 +339,8 @@ class KubeBuild(object):
             return nodes
 
         logging.debug("Getting node information from config.")
-        for node_index in range(0, self.get_node_count(node_type)):
-            hostname = helpers.hostname_with_index(
-                self.config.get(node_type, 'prefix'),
-                self.get_node_domain(),
-                node_index)
-            nodes.append(hostname)
+        nodes = self.get_node_ip_addresses(node_type)
+        logging.debug(f"Node {node_type} IPs: {nodes}")
 
         return nodes
 
@@ -659,10 +655,8 @@ class KubeBuild(object):
 
         logging.info(f"Storing local data in {self.args.local_storage_dir}.")
 
-        hostname = helpers.hostname_with_index(
-            self.config.get('controller', 'prefix'),
-            self.get_node_domain(),
-            0)
+        # Arbitrarily pick the first controller.
+        hostname = self.get_nodes('controller')[0]
 
         self.run_command_via_ssh(
             self.config.get('controller', 'remote_user'),
