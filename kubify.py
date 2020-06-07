@@ -218,21 +218,44 @@ class KubeBuild(object):
         return True
 
     @timeit
+    def get_nodes_from_cluster(self, node_type):
+        """given node_type, return list of tuples (node_name, node_ip) from cluster."""
+        nodes = []
+        if node_type == 'controller':
+            selector = "node-role.kubernetes.io/master"
+        elif node_type == 'worker':
+            selector = "!node-role.kubernetes.io/master"
+        else:
+            logging.error(f"Attempting to retrieve cluster nodes of type '{node_type}' which is unsupported.")
+            sys.exit(1)
+
+        cc = "NAME:.metadata.name,IP:.status.addresses[?(@.type=='InternalIP')].address"
+
+        kubectl_getnodes_output = self.run_command(
+            f"{self.args.local_storage_dir}/kubectl get nodes "
+            f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+            f"--selector={selector} "
+            f"--no-headers "
+            f"-o=custom-columns={cc}",
+            return_output=True)
+        for c_line in kubectl_getnodes_output.splitlines():
+            node_info = c_line.split() # name, IP.
+            nodes.append((node_info[0], node_info[1]))
+        logging.info(f"in get_nodes_from_cluster: nodes: {nodes}.")
+        return nodes
+
+    @timeit
     def upgrade_nodes(self, node_type):
         """upgrade a set of nodes to the new kubernetes version."""
         k8s_version_dict = self.get_k8s_version()
         k8s_version = f"{k8s_version_dict['major']}.{k8s_version_dict['minor']}.{k8s_version_dict['patch']}"
 
-        for node in self.get_nodes(node_type):
-            logging.info(f"upgrading kubernetes node {node} to {self.get_k8s_version()}.")
-            # TODO: make figuring out the hostname of a node correct.
-            # if it's using fqdn, we should use it.
-            # should we get node names from kubectl get nodes output?
-            node_shortname = node.split('.')[0]
+        for node_name, node_ip in self.get_nodes_from_cluster(node_type):
+            logging.info(f"upgrading kubernetes node {node_name} (ip: {node_ip}) to {self.get_k8s_version()}.")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 f"sudo apt-mark unhold kubeadm && "
                 f"sudo apt update && "
                 f"sudo apt install -y kubeadm={k8s_version}-00 && "
@@ -241,19 +264,19 @@ class KubeBuild(object):
             self.run_command(
                 f"{self.args.local_storage_dir}/kubectl "
                 f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"drain {node_shortname} --ignore-daemonsets --delete-local-data")
+                f"drain {node_name} --ignore-daemonsets --delete-local-data")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 f"sudo kubeadm upgrade node")
 
-            self.upgrade_kubernetes_binaries(node_type, specific_node=node)
+            self.upgrade_kubernetes_binaries(node_type, specific_node=node_ip)
 
             self.run_command(
                 f"{self.args.local_storage_dir}/kubectl "
                 f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"uncordon {node_shortname}")
+                f"uncordon {node_name}")
 
     @timeit
     def upgrade_control_plane(self, k8s_ver):
@@ -263,15 +286,11 @@ class KubeBuild(object):
         k8s_ver_dict = self.get_k8s_version()
         ver = f"{k8s_ver_dict['major']}.{k8s_ver_dict['minor']}.{k8s_ver_dict['patch']}"
 
-        for node in self.get_nodes(node_type):
-            # TODO: make figuring out the hostname of a node correct.
-            # if it's using fqdn, we should use it.
-            # should we get node names from kubectl get nodes output?
-            node_shortname = node.split('.')[0]
-
+        for node_name, node_ip in self.get_nodes_from_cluster(node_type):
+            logging.info(f"Upgrading control plane node {node_name} (ip: {node_ip}).")
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 f"sudo apt-mark unhold kubeadm && "
                 f"sudo apt update && "
                 f"sudo apt install -y kubeadm={ver}-00 && "
@@ -279,7 +298,7 @@ class KubeBuild(object):
 
             remote_k8s_version = self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 "kubeadm version -o yaml",
                 return_output = True)
 
@@ -297,29 +316,29 @@ class KubeBuild(object):
             self.run_command(
                 f"{self.args.local_storage_dir}/kubectl "
                 f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"drain {node_shortname} --ignore-daemonsets --delete-local-data")
+                f"drain {node_name} --ignore-daemonsets --delete-local-data")
 
             if first_node_done is False:
                 self.run_command_via_ssh(
                     self.config.get(node_type, 'remote_user'),
-                    node,
+                    node_ip,
                     'sudo kubeadm upgrade plan')
 
                 self.run_command_via_ssh(
                     self.config.get(node_type, 'remote_user'),
-                    node,
+                    node_ip,
                     f"sudo kubeadm upgrade apply --yes v{ver}")
                 first_node_done = True
             else:
                 self.run_command_via_ssh(
                     self.config.get(node_type, 'remote_user'),
-                    node,
+                    node_ip,
                     f"sudo kubeadm upgrade node")
 
             self.run_command(
                 f"{self.args.local_storage_dir}/kubectl "
                 f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"uncordon {node_shortname}")
+                f"uncordon {node_name}")
         logging.info("finished upgrade_control_plane")
 
     @timeit
@@ -361,59 +380,66 @@ class KubeBuild(object):
         k8s_version = self.get_k8s_version()
         logging.info(f"beginning container runtime deploy: "
                      f"node type: {node_type}, apt command: {apt_command}.")
-        for node in self.get_nodes(node_type):
-            logging.info(f"deploying container runtime to {node}.")
+
+        if apt_command == 'install':
+            node_ips = self.get_nodes(node_type)
+        elif apt_command == 'upgrade':
+            nodes = self.get_nodes_from_cluster(node_type)
+            node_ips = [x[1] for x in nodes]
+
+        for node_ip in node_ips:
+            logging.info(f"deploying container runtime to {node_ip}.")
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/sysctl.d/99-kubernetes-cri.conf",
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 "/etc/sysctl.d/99-kubernetes-cri.conf")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 'sudo sysctl --system')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 'sudo apt install -y apt-transport-https ca-certificates curl software-properties-common')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 'sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 'sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 f'sudo apt update && sudo apt {apt_command} -y containerd.io')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 'sudo mkdir -p /etc/containerd')
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/containerd/config.toml",
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 "/etc/containerd/config.toml")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 'sudo systemctl enable containerd')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 'sudo systemctl restart containerd')
 
     @timeit
@@ -483,17 +509,15 @@ class KubeBuild(object):
         k8s_version_dict = self.get_k8s_version()
         k8s_version = f"{k8s_version_dict['major']}.{k8s_version_dict['minor']}.{k8s_version_dict['patch']}"
 
-        for node in self.get_nodes(node_type):
-            logging.info(f"upgrading kubernetes binaries to {node}.")
-            if specific_node is None:
-                pass
-            elif specific_node != node:
-                logging.info(f"Only upgrading specific node: {node}. Skipping.")
+        for node_name, node_ip in self.get_nodes_from_cluster(node_type):
+            logging.info(f"upgrading kubernetes binaries on {node_name} (ip: {node_ip}).")
+            if specific_node and specific_node != node_ip:
+                logging.info(f"Only upgrading specific node: {node_ip}. Skipping this one.")
                 continue
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 f"sudo apt-mark unhold kubelet kubectl && "
                 f"sudo apt update && "
                 f"sudo apt install -y kubelet={k8s_version}-00 kubectl={k8s_version}-00 && "
@@ -501,7 +525,7 @@ class KubeBuild(object):
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
-                node,
+                node_ip,
                 "sudo systemctl restart kubelet")
 
     @timeit
