@@ -742,7 +742,6 @@ class KubeBuild(object):
         """main build sequencer function."""
 
         logging.info(f"Executing kubify command: {self.args.command}")
-        # (controller_nodes, worker_nodes) = self.determineNodes(self.args.node)
         if self.args.command == 'install':
             self.deploy_container_runtime('controller')
             self.deploy_container_runtime('worker')
