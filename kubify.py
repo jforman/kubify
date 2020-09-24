@@ -120,7 +120,7 @@ class KubeBuild(object):
     def scp_file(self, local_path, remote_user, remote_host, remote_path,
                  ignore_errors=False):
         """copy the local file to the remote destination."""
-        ssh_args = "-q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+        ssh_args = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
         self.run_command(
             f"scp {ssh_args} {local_path} "
             f"{remote_user}@{remote_host}:{remote_path}",
@@ -133,7 +133,7 @@ class KubeBuild(object):
         """ssh to remote host and run specified command."""
         ssh_args = ('-o UserKnownHostsFile=/dev/null '
                     '-o StrictHostKeyChecking=no '
-                    '-t -q')
+                    '-t')
 
         output = self.run_command(
             f"ssh {ssh_args} {remote_user}@{remote_host} {command}",
@@ -697,12 +697,12 @@ class KubeBuild(object):
             os.makedirs(self.args.local_storage_dir)
 
         self.run_command(
-            f"scp -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
+            f"scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
             f"{self.config.get('controller', 'remote_user')}@{hostname}:~/admin.conf "
             f"{self.args.local_storage_dir}/admin.conf")
 
         self.run_command(
-            f"scp -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
+            f"scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
             f"{self.config.get('controller', 'remote_user')}@{hostname}:/usr/bin/kubectl "
             f"{self.args.local_storage_dir}/kubectl")
 
