@@ -20,7 +20,7 @@ import helpers
 RE_CERTIFICATE_KEY = re.compile(r'--certificate-key (\S+)', re.MULTILINE)
 RE_DISCOVERY_TOKEN = re.compile(r'--discovery-token-ca-cert-hash (\S+)', re.MULTILINE)
 RE_TOKEN = re.compile(r'--token (\S+)', re.MULTILINE)
-RE_VER = re.compile(r'^v?(?P<major>\d+)\.(?P<minor>\d+)\.?(?P<patch>\d+).*?$')
+RE_VER = re.compile(r'^v?(?P<major>\d+)\.(?P<minor>\d+)\.?(?P<patch>\d+)?.*?$')
 RE_CERTIFICATE_KEY_REINIT = re.compile(r'Using certificate key:\s+(\S+)', re.MULTILINE)
 
 class KubeBuild(object):
