@@ -4,6 +4,7 @@ import argparse
 import base64
 import configparser
 import inspect
+import json
 import logging
 import os
 import re
@@ -12,15 +13,16 @@ import string
 import subprocess
 import sys
 import time
+import traceback
 import urllib.request
 import yaml
 
 import helpers
+from packaging import version
 
 RE_CERTIFICATE_KEY = re.compile(r'--certificate-key (\S+)', re.MULTILINE)
 RE_DISCOVERY_TOKEN = re.compile(r'--discovery-token-ca-cert-hash (\S+)', re.MULTILINE)
 RE_TOKEN = re.compile(r'--token (\S+)', re.MULTILINE)
-RE_VER = re.compile(r'^v?(?P<major>\d+)\.(?P<minor>\d+)\.?(?P<patch>\d+)?.*?$')
 RE_CERTIFICATE_KEY_REINIT = re.compile(r'Using certificate key:\s+(\S+)', re.MULTILINE)
 
 class KubeBuild(object):
@@ -37,6 +39,7 @@ class KubeBuild(object):
         # configurations.
         self.kubify_dirs = {}
         self.set_k8s_paths()
+        self.k8s_version = None
 
         # arguments to the kubeadm join command for other nodes
         self.join_token = ""
@@ -57,60 +60,72 @@ class KubeBuild(object):
 
         return timed
 
-    def get_node_domain(self):
-        """return the node dns domain."""
-        return self.config.get('general', 'domain_name')
-
     def get_node_ip_addresses(self, node_type):
         """get list of node IPs."""
         return self.config.get(node_type, 'ip_addresses').split(',')
 
-    def get_node_count(self, node_type):
-        """get number of nodes of a particular type."""
-        return len(self.get_node_ip_addresses(node_type))
+    def get_latest_k8s_patch_version(self, r_version_str):
+        """given a major.minor version, find the latest patch version available."""
+        f = urllib.request.urlopen("https://api.github.com/repos/kubernetes/kubernetes/releases")
+        raw_output = f.read().decode().strip()
+        rel_json = json.loads(raw_output)
+        r_version_obj = version.Version(r_version_str)
+        logging.debug(f"comparing against version: {r_version_obj.public}")
+        candidates = []
+        for candidate in rel_json:
+            c_name = candidate['name']
+            if c_name.startswith(f"v{r_version_obj.public}"):
+                logging.debug(f"Found patch candidate for release: {c_name}.")
+                if '-rc' in c_name:
+                    continue
+                # TODO: add --allow_prereleases to kubify to allow preleases?
+                candidates.append(version.Version(c_name))
+        candidates = sorted(candidates)
+        logging.info(f"candidates: {candidates}.")
+        latest = candidates[-1]
+        logging.info(f"Found latest candidate: {latest.public}")
+        return latest.public
 
-    def get_remote_k8s_version(self, version=None):
-        """https://dl.k8s.io/release/stable-1.txt"""
-        """if given a """
-        if version is None:
-            version = self.args.k8s_version
-        f = urllib.request.urlopen(f"https://dl.k8s.io/release/{version}.txt")
-        ver_string = f.read().decode().strip()
-        # TODO: convert to string and strip newlines, etc.
-        # Read it into a string?
-        return ver_string
-
-    def get_k8s_version(self, version=None):
+    def get_k8s_version(self, raw_version=None):
         """parse the requested kubernetes version into."""
-        if version is None:
-            if (self.args.k8s_version.startswith('latest-') or
-                self.args.k8s_version.startswith('stable-')):
-                raw_version = self.get_remote_k8s_version()
-            else:
-                raw_version = self.args.k8s_version
+        ver_obj = version.Version
+
+        if self.k8s_version is not None:
+            logging.info(f"Found cached k8s_version: {self.k8s_version}. Returning.")
+            return self.k8s_version
+
+        if raw_version is not None:
+            ver_obj = version.Version(raw_version)
+            return ver_obj
+
+        logging.debug(f"K8S version passed on command line: {self.args.k8s_version}")
+
+        if all([
+            len(self.args.k8s_version.split('.')) == 3,
+            self.args.k8s_version.split('.')[-1] == '0'
+            ]):
+            ver_obj = version.Version(self.args.k8s_version)
+            logging.info(f"Found to install 0 micro version of release: {ver_obj.major}.{ver_obj.minor}")
+        elif (self.args.k8s_version.startswith('latest-') or self.args.k8s_version.startswith('stable-')):
+            f = urllib.request.urlopen(f"https://dl.k8s.io/release/{self.args.k8s_version}.txt")
+            raw_version = f.read().decode().strip()
+            ver_obj = version.Version(raw_version)
         else:
-            raw_version = version
+            ver_obj = version.Version(self.args.k8s_version)
+            if ver_obj.micro == 0:
+                logging.info(f"Determing latest patch version for k8s version: {ver_obj.major}.{ver_obj.minor}.")
+                ver_obj = version.Version(self.get_latest_k8s_patch_version(f"{ver_obj.major}.{ver_obj.minor}"))
+                logging.info(f"Latest patch version for k8s version {ver_obj.major}.{ver_obj.minor} determined to be: {ver_obj.public}.")
 
-        version = RE_VER.search(raw_version)
-        if not version:
-            logging.critical(f"Could not parse version from: {raw_version}")
-            raise
-        version_dict = version.groupdict()
-        logging.info(f"parsed kubernetes version: {version_dict}.")
-        if version_dict['patch'] is None:
-            # If a patch version was not passed, set it to zero by default.
-            version_dict['patch'] = 0
-        logging.info(f"computed kubernetes version: {version_dict}")
-
-        return version_dict
+        logging.info(f"Setting k8s_version to {ver_obj}.")
+        self.k8s_version = ver_obj
+        return self.k8s_version
 
     @timeit
     def set_k8s_paths(self):
         """given string containing special macro, return command line with
         directories substituted in string."""
-
         self.kubify_dirs['CHECKOUT_DIR'] = os.path.dirname(os.path.realpath(sys.argv[0]))
-
         self.kubify_dirs['CHECKOUT_CONFIG_DIR'] = os.path.join(
             self.kubify_dirs['CHECKOUT_DIR'], 'configs')
         self.kubify_dirs['TEMPLATE_DIR'] =  os.path.join(
@@ -199,19 +214,19 @@ class KubeBuild(object):
             node_versions.append(node_ver)
             logging.info(f"Found node {node_name} running kubelet version {node_ver}.")
         node_versions = set(node_versions)
-        dest_k8s_ver = self.get_k8s_version()
+        dest_k8s_ver_obj = self.get_k8s_version(raw_version=dest_k8s_ver)
 
         # TODO: add logic to bail when there are nodes of two different minor versions.
         # this is an un-upgradable scenario because one could be skipping a minor version.
         for c in node_versions:
-            c_ver = RE_VER.search(c)
-            logging.debug(f"current node version: {c_ver.groupdict()}")
+            c_ver = version.Version(c)
+            logging.debug(f"current node version: {c_ver.public}")
             if c_ver is None:
                 logging.fatal(f'unable to determine node version dictionary: {c}')
-            if dest_k8s_ver['major'] != c_ver['major']:
-                logging.fatal(f'attempting an upgrade across major versions. not supported yet. '
-                              f'destination: {dest_k8s_ver}, found: {c}')
-            minor_ver_diff = int(dest_k8s_ver['minor']) - int(c_ver['minor'])
+            if dest_k8s_ver_obj.major != c_ver.major:
+                logging.fatal(f'attempting an upgrade across major versions is not supported. '
+                              f'attemped to upgrade to: {self.get_k8s_version().public}, but found: {c}')
+            minor_ver_diff = int(dest_k8s_ver_obj.minor) - int(c_ver.minor)
             if minor_ver_diff > 1:
                 logging.exception('attempting to skip minor version upgrade. currently unsupported by kubeadm.')
                 raise
@@ -247,18 +262,17 @@ class KubeBuild(object):
     @timeit
     def upgrade_nodes(self, node_type):
         """upgrade a set of nodes to the new kubernetes version."""
-        k8s_version_dict = self.get_k8s_version()
-        k8s_version = f"{k8s_version_dict['major']}.{k8s_version_dict['minor']}.{k8s_version_dict['patch']}"
+        k8s_version = self.get_k8s_version()
 
         for node_name, node_ip in self.get_nodes_from_cluster(node_type):
-            logging.info(f"upgrading kubernetes node {node_name} (ip: {node_ip}) to {self.get_k8s_version()}.")
+            logging.info(f"upgrading kubernetes node {node_name} (ip: {node_ip}) to {k8s_version.public}.")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 f"sudo apt-mark unhold kubeadm && "
                 f"sudo apt update && "
-                f"sudo apt install -y kubeadm={k8s_version}-00 && "
+                f"sudo apt install -y kubeadm={k8s_version.public}-00 && "
                 f"sudo apt-mark hold kubeadm")
 
             self.run_command(
@@ -283,17 +297,16 @@ class KubeBuild(object):
         """upgrade k8s control plane to new k8s version."""
         first_node_done=False
         node_type='controller'
-        k8s_ver_dict = self.get_k8s_version()
-        ver = f"{k8s_ver_dict['major']}.{k8s_ver_dict['minor']}.{k8s_ver_dict['patch']}"
+        k8s_ver = self.get_k8s_version()
 
         for node_name, node_ip in self.get_nodes_from_cluster(node_type):
             logging.info(f"Upgrading control plane node {node_name} (ip: {node_ip}).")
+
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
-                f"sudo apt-mark unhold kubeadm && "
                 f"sudo apt update && "
-                f"sudo apt install -y kubeadm={ver}-00 && "
+                f"sudo apt install -y --allow-change-held-packages kubernetes-cni kubeadm={k8s_ver.major}.{k8s_ver.minor}.{k8s_ver.micro}-00 && "
                 f"sudo apt-mark hold kubeadm")
 
             remote_k8s_version = self.run_command_via_ssh(
@@ -307,11 +320,11 @@ class KubeBuild(object):
                 logging.info("DRY RUN: Would have checked that remote kubeadm version matched what we expected.")
             else:
                 remote_version_yaml = yaml.safe_load(remote_k8s_version)
-                remote_version_dict = self.get_k8s_version(
-                    remote_version_yaml['clientVersion']['gitVersion'])
-                if k8s_ver_dict != remote_version_dict:
+                remote_version = self.get_k8s_version(
+                    raw_version=remote_version_yaml['clientVersion']['gitVersion'])
+                if k8s_ver != remote_version:
                     logging.fatal(f"Installed kubeadm version mismatch. "
-                                    f"Expected: {k8s_ver_dict}. Found: {remote_version_dict}.")
+                                    f"Expected: {k8s_ver}. Found: {remote_version}.")
 
             self.run_command(
                 f"{self.args.local_storage_dir}/kubectl "
@@ -327,7 +340,7 @@ class KubeBuild(object):
                 self.run_command_via_ssh(
                     self.config.get(node_type, 'remote_user'),
                     node_ip,
-                    f"sudo kubeadm upgrade apply --yes v{ver}")
+                    f"sudo kubeadm upgrade apply --yes v{k8s_ver.public}")
                 first_node_done = True
             else:
                 self.run_command_via_ssh(
@@ -377,7 +390,6 @@ class KubeBuild(object):
     @timeit
     def deploy_container_runtime(self, node_type, apt_command='install'):
         """deploy container runtime on nodes of node_type."""
-        k8s_version = self.get_k8s_version()
         logging.info(f"beginning container runtime deploy: "
                      f"node type: {node_type}, apt command: {apt_command}.")
 
@@ -445,9 +457,6 @@ class KubeBuild(object):
     @timeit
     def deploy_kubernetes_binaries(self, node_type):
         """deploy container runtime on nodes of node_type."""
-        k8s_version_dict = self.get_k8s_version()
-        k8s_version = f"{k8s_version_dict['major']}.{k8s_version_dict['minor']}.{k8s_version_dict['patch']}"
-
         for node in self.get_nodes(node_type):
             logging.info(f"deploying kubernetes binaries to {node}.")
 
@@ -475,7 +484,7 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                f"sudo apt install -y kubelet={k8s_version}-00 kubeadm={k8s_version}-00 kubectl={k8s_version}-00 nfs-common")
+                f"sudo apt install -y kubelet={self.get_k8s_version().public}-00 kubeadm={self.get_k8s_version().public}-00 kubectl={self.get_k8s_version().public}-00 nfs-common")
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/default/kubelet",
@@ -506,8 +515,7 @@ class KubeBuild(object):
     @timeit
     def upgrade_kubernetes_binaries(self, node_type, specific_node=None):
         """upgrade kubernetes binaries on nodes of node_type."""
-        k8s_version_dict = self.get_k8s_version()
-        k8s_version = f"{k8s_version_dict['major']}.{k8s_version_dict['minor']}.{k8s_version_dict['patch']}"
+        k8s_version = self.get_k8s_version() 
 
         for node_name, node_ip in self.get_nodes_from_cluster(node_type):
             logging.info(f"upgrading kubernetes binaries on {node_name} (ip: {node_ip}).")
@@ -520,7 +528,7 @@ class KubeBuild(object):
                 node_ip,
                 f"sudo apt-mark unhold kubelet kubectl && "
                 f"sudo apt update && "
-                f"sudo apt install -y kubelet={k8s_version}-00 kubectl={k8s_version}-00 && "
+                f"sudo apt install -y kubelet={k8s_version.major}.{k8s_version.minor}.{k8s_version.micro}-00 kubectl={k8s_version.major}.{k8s_version.minor}.{k8s_version.micro}-00 && "
                 f"sudo apt-mark hold kubelet kubectl")
 
             self.run_command_via_ssh(
@@ -580,7 +588,6 @@ class KubeBuild(object):
 
             if not initialized_first_node:
                 # Only execute these commands if the first node has not been initialized yet.
-
                 self.write_template(
                     f"{self.kubify_dirs['TEMPLATE_DIR']}/kubeadm-config.yaml",
                     f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubeadm-config.yaml",
@@ -588,7 +595,7 @@ class KubeBuild(object):
                         'api_server_loadbalancer_hostport': self.config.get('general', 'api_server_loadbalancer_hostport'),
                         'service_subnet': self.config.get('general', 'service_subnet'),
                         'pod_subnet': self.config.get('general', 'pod_subnet'),
-                        'kubernetes_version': f"{k8s_version['major']}.{k8s_version['minor']}.{k8s_version['patch']}",
+                        'kubernetes_version': f"{k8s_version.major}.{k8s_version.minor}.{k8s_version.micro}",
                     })
 
                 self.deploy_file(
@@ -792,7 +799,7 @@ def main():
                         help='enable debug-level logging.')
     parser.add_argument('--k8s_version',
                         default='stable-1',
-                        help='Kubernetes version to install.')
+                        help='Kubernetes version to install. If no patch version provided, latest minor version used.')
     parser.add_argument('--kubeadm_init_extra_flags',
                         help='Additional flags to add to kubeadm init step.')
     parser.add_argument('--local_storage_dir',
@@ -828,7 +835,7 @@ def main():
         elapsed_time_strftime = time.strftime("%Hh:%Mm:%Ss", time.gmtime(elapsed_time))
         logging.info(f'completed running kubernetes build. Elapsed Time {elapsed_time_strftime}.')
     except:
-        logging.error("Exception Caught")
+        logging.error(f"Exception Caught: {traceback.print_exc()}")
         logging.error(f"args: {args}")
         logging.error(f"kubify_dirs: {k8s.kubify_dirs}")
 
