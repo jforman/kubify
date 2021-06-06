@@ -29,11 +29,20 @@ class KubeBuild(object):
     """define, create, and deploy a kubernetes cluster methods."""
 
     def __init__(self, cli_args):
+
+        def read_config(config_path):
+            if not os.path.exists(config_path):
+                logging.fatal(f"Unable to read config file at {config_path}.")
+                raise
+            logging.info(f"Reading config at {config_path}.")
+            c = configparser.ConfigParser()
+            c.read(config_path)
+            return c
+
         self.args = cli_args
         self.checkout_path = os.path.dirname(os.path.realpath(sys.argv[0]))
+        self.config = read_config(self.args.config)
 
-        self.config = configparser.ConfigParser()
-        self.config.read(self.args.config)
         self.node_pod_cidrs = {}
         # Directories pertaining to checkout and output directory
         # configurations.
