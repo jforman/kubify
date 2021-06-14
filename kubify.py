@@ -573,12 +573,17 @@ class KubeBuild(object):
 
     @timeit
     def run_command(self, cmd, return_output=False,
-                    cmd_stdin=None, output_file='', ignore_errors=False):
-        """given a command, translate needed paths and run it."""
+                    cmd_stdin=None, output_file='', ignore_errors=False, noop_command=False):
+        """given a command, translate needed paths and run it.
+
+           Args:
+            noop_command: Command which makes no actual change to underlying system.
+                          Expected to be safe to run even with dry_run.
+        """
         command_list = cmd.split()
         output = ""
 
-        if self.args.dry_run:
+        if self.args.dry_run and not noop_command:
             logging.info(f"DRYRUN: Execute: {' '.join(command_list)}")
         else:
             try:
