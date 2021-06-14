@@ -145,6 +145,12 @@ class KubeBuild(object):
                  ignore_errors=False):
         """copy the local file to the remote destination."""
         ssh_args = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+        if not os.path.exists(local_path):
+            logging.fatal(f"Went to copy local file {local_path}, but file not found.")
+            raise
+        else:
+            logging.debug(f"Local file {local_path} found.")
+
         self.run_command(
             f"scp {ssh_args} {local_path} "
             f"{remote_user}@{remote_host}:{remote_path}",
