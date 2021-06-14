@@ -276,6 +276,8 @@ class KubeBuild(object):
         for node_name, node_ip in self.get_nodes_from_cluster(node_type):
             logging.info(f"upgrading kubernetes node {node_name} (ip: {node_ip}) to {k8s_version.public}.")
 
+            self.update_apt_repos(node_type, node_ip)
+
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
@@ -310,6 +312,8 @@ class KubeBuild(object):
 
         for node_name, node_ip in self.get_nodes_from_cluster(node_type):
             logging.info(f"Upgrading control plane node {node_name} (ip: {node_ip}).")
+
+            self.update_apt_repos(node_type, node_ip)
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
@@ -395,6 +399,28 @@ class KubeBuild(object):
                 node,
                 'sudo shutdown -r now',
                 ignore_errors=True)
+
+    @timeit
+    def update_apt_repos(self, node_type, node):
+        """deploy apt repo configs and update apt repositories on node."""
+        logging.info(f"Updating APT repositories on node {node}.")
+
+        self.run_command_via_ssh(
+            self.config.get(node_type, 'remote_user'),
+            node,
+            'sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg')
+
+        self.deploy_file(
+            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/apt/sources.list.d/kubernetes.list",
+            self.config.get(node_type, 'remote_user'),
+            node,
+            "/etc/apt/sources.list.d/kubernetes.list")
+
+        self.run_command_via_ssh(
+            self.config.get(node_type, 'remote_user'),
+            node,
+            "sudo apt update")
+        logging.info(f"Done updating APT repositories on node {node}.")
 
     @timeit
     def deploy_container_runtime(self, node_type, apt_command='install'):
