@@ -253,18 +253,25 @@ class KubeBuild(object):
             logging.error(f"Attempting to retrieve cluster nodes of type '{node_type}' which is unsupported.")
             sys.exit(1)
 
-        cc = "NAME:.metadata.name,IP:.status.addresses[?(@.type=='InternalIP')].address"
-
         kubectl_getnodes_output = self.run_command(
             f"{self.args.local_storage_dir}/kubectl get nodes "
             f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
             f"--selector={selector} "
-            f"--no-headers "
-            f"-o=custom-columns={cc}",
-            return_output=True)
-        for c_line in kubectl_getnodes_output.splitlines():
-            node_info = c_line.split() # name, IP.
-            nodes.append((node_info[0], node_info[1]))
+            f"-o json",
+            return_output=True,
+            noop_command=True)
+
+        getnodes_json = json.loads(kubectl_getnodes_output)
+
+        for candidate_node in getnodes_json["items"]:
+            if candidate_node["kind"] == "Node":
+                node_name = candidate_node["metadata"]["name"]
+                for addresses in candidate_node["status"]["addresses"]:
+                    # NOTE: Is there possiblity of multiple IP addresses on a node?
+                    # This code only handles first one.
+                    if addresses["type"] == "InternalIP":
+                        node_ip_address = addresses["address"]
+                        nodes.append((node_name, node_ip_address))
         logging.info(f"in get_nodes_from_cluster: nodes: {nodes}.")
         return nodes
 
