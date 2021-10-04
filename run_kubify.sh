@@ -5,6 +5,8 @@
 #   $2: Directory containing kubectl binary, certificate, and config files.
 #   $3*: Parameters to actual kubify execution.
 
+docker build -t jforman/kubify:latest .
+
 docker run -it --rm \
 -e SSH_AUTH_SOCK=/ssh-agent \
 -v ${SSH_AUTH_SOCK}:/ssh-agent \
