@@ -5,6 +5,12 @@
 #   $2: Directory containing kubectl binary, certificate, and config files.
 #   $3*: Parameters to actual kubify execution.
 
+# Example
+# /run_kubify.sh kubify-prod.conf \
+#   /nas1/code/kubernetes/prod \
+#   upgrade \
+#   --debug --k8s_version 1.20 --dry_run
+
 docker build -t jforman/kubify:latest .
 
 docker run -it --rm \
