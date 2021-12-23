@@ -455,6 +455,8 @@ class KubeBuild(object):
         for node_ip in node_ips:
             logging.info(f"deploying container runtime to {node_ip}.")
 
+            self.update_apt_repos(node_type, node_ip)
+
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/sysctl.d/99-kubernetes-cri.conf",
                 self.config.get(node_type, 'remote_user'),
