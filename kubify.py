@@ -302,7 +302,7 @@ class KubeBuild(object):
             self.run_command(
                 f"{self.args.local_storage_dir}/kubectl "
                 f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"drain {node_name} --ignore-daemonsets --delete-local-data")
+                f"drain {node_name} --ignore-daemonsets --delete-emptydir-data")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
@@ -355,7 +355,7 @@ class KubeBuild(object):
             self.run_command(
                 f"{self.args.local_storage_dir}/kubectl "
                 f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"drain {node_name} --ignore-daemonsets --delete-local-data")
+                f"drain {node_name} --ignore-daemonsets --delete-emptydir-data")
 
             if first_node_done is False:
                 self.run_command_via_ssh(
