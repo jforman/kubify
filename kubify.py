@@ -82,13 +82,13 @@ class KubeBuild(object):
         logging.debug(f"comparing against version: {r_version_obj.public}")
         candidates = []
         for candidate in rel_json:
-            c_name = candidate['name']
-            if c_name.startswith(f"v{r_version_obj.public}"):
-                logging.debug(f"Found patch candidate for release: {c_name}.")
-                if '-rc' in c_name:
+            c_tag_name = candidate['tag_name']
+            if c_tag_name.startswith(f"v{r_version_obj.public}"):
+                logging.debug(f"Found patch candidate for release: {c_tag_name}.")
+                if '-rc' in c_tag_name:
                     continue
                 # TODO: add --allow_prereleases to kubify to allow preleases?
-                candidates.append(version.Version(c_name))
+                candidates.append(version.Version(c_tag_name))
         candidates = sorted(candidates)
         logging.info(f"candidates: {candidates}.")
         latest = candidates[-1]
