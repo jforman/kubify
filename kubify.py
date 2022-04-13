@@ -476,28 +476,27 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
-                'sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -')
+                'sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /tmp/docker-archive-keyring.gpg')
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
-                'sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"')
+                'sudo gpg --dearmor --yes -o /usr/share/keyrings/docker-archive-keyring.gpg /tmp/docker-archive-keyring.gpg')
 
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node_ip,
+                'sudo apt-key add /usr/share/keyrings/docker-archive-keyring.gpg')
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node_ip,
+                "sudo add-apt-repository \"deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\"")
+                
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 f'sudo apt update && sudo apt {apt_command} -y containerd.io')
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                'sudo mkdir -p /etc/containerd')
-
-            self.deploy_file(
-                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/containerd/config.toml",
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                "/etc/containerd/config.toml")
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
