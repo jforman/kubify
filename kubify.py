@@ -514,26 +514,7 @@ class KubeBuild(object):
         for node in self.get_nodes(node_type):
             logging.info(f"deploying kubernetes binaries to {node}.")
 
-            self.deploy_file(
-                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/apt/sources.list.d/kubernetes.list",
-                self.config.get(node_type, 'remote_user'),
-                node,
-                "/etc/apt/sources.list.d/kubernetes.list")
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                'sudo curl -o /tmp/packages.cloud.google.com-apt-key.gpg -s https://packages.cloud.google.com/apt/doc/apt-key.gpg')
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                "sudo apt-key add /tmp/packages.cloud.google.com-apt-key.gpg")
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                "sudo apt update")
+            self.update_apt_repos(node_type, node)
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
