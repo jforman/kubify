@@ -743,6 +743,17 @@ class KubeBuild(object):
         if not os.path.exists(self.args.local_storage_dir):
             os.makedirs(self.args.local_storage_dir)
 
+        if os.path.exists(f"{self.args.local_storage_dir}/admin.conf"):
+            timestamp = f"{time.strftime('%Y%m%d-%H%M', time.localtime())}"
+            timestamp_file = f"{self.args.local_storage_dir}/admin.conf.{timestamp}"
+            logging.info(f"Moving old admin.conf to {timestamp_file}.")
+            if self.args.dry_run:
+                logging.info(f"DRYRUN: Would have moved admin.conf from {self.args.local_storage_dir}/admin.conf "
+                             f"to {timestamp_file}.")
+            else:
+                os.rename(f"{self.args.local_storage_dir}/admin.conf",
+                          f"{self.args.local_storage_dir}/admin.conf.{timestamp}")
+
         self.run_command(
             f"scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
             f"{self.config.get('controller', 'remote_user')}@{hostname}:~/admin.conf "
