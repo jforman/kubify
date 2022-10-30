@@ -827,8 +827,6 @@ class KubeBuild(object):
             self.check_upgrade_viability(self.args.k8s_version)
             self.upgrade_control_plane(self.args.k8s_version)
             self.deploy_container_runtime('controller', apt_command='upgrade')
-            self.upgrade_kubernetes_binaries('controller')
-            self.deploy_flannel()
             self.upgrade_nodes('worker')
             self.deploy_container_runtime('worker', apt_command='upgrade')
             self.store_configs_locally()
