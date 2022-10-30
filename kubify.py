@@ -572,6 +572,11 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
+                "sudo systemctl daemon-reload")
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node_ip,
                 "sudo systemctl restart kubelet")
 
     @timeit
