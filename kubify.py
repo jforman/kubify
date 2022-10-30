@@ -337,8 +337,8 @@ class KubeBuild(object):
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
-                f"sudo apt update && "
-                f"sudo apt install -y --allow-change-held-packages kubernetes-cni kubeadm={k8s_ver.major}.{k8s_ver.minor}.{k8s_ver.micro}-00 && "
+                f"sudo apt-mark unhold kubeadm={k8s_ver.major}.{k8s_ver.minor}.{k8s_ver.micro}-00 && "
+                f"sudo apt install -y kubeadm={k8s_ver.major}.{k8s_ver.minor}.{k8s_ver.micro}-00 && "
                 f"sudo apt-mark hold kubeadm")
 
             remote_k8s_version = self.run_command_via_ssh(
