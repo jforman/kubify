@@ -79,20 +79,19 @@ class KubeBuild(object):
         raw_output = f.read().decode().strip()
         rel_json = json.loads(raw_output)
         r_version_obj = version.Version(r_version_str)
-        logging.debug(f"comparing against version: {r_version_obj.public}")
         candidates = []
         for candidate in rel_json:
             c_tag_name = candidate['tag_name']
             if c_tag_name.startswith(f"v{r_version_obj.public}"):
-                logging.debug(f"Found patch candidate for release: {c_tag_name}.")
+                logging.debug(f"Found candidate for version: {c_tag_name}.")
                 if '-rc' in c_tag_name:
                     continue
                 # TODO: add --allow_prereleases to kubify to allow preleases?
                 candidates.append(version.Version(c_tag_name))
         candidates = sorted(candidates)
-        logging.info(f"candidates: {candidates}.")
+        logging.info(f"Candidates: {candidates}.")
         latest = candidates[-1]
-        logging.info(f"Found latest candidate: {latest.public}")
+        logging.info(f"Latest candidate: {latest.public}")
         return latest.public
 
     def get_k8s_version(self, raw_version=None):
@@ -107,26 +106,26 @@ class KubeBuild(object):
             ver_obj = version.Version(raw_version)
             return ver_obj
 
-        logging.debug(f"K8S version passed on command line: {self.args.k8s_version}")
+        logging.debug(f"k8s version passed on command line: {self.args.k8s_version}")
 
         if all([
             len(self.args.k8s_version.split('.')) == 3,
             self.args.k8s_version.split('.')[-1] == '0'
             ]):
             ver_obj = version.Version(self.args.k8s_version)
-            logging.info(f"Found to install 0 micro version of release: {ver_obj.major}.{ver_obj.minor}")
+            logging.info(f"Requested to install micro version 0 of release {ver_obj.major}.{ver_obj.minor}.")
         elif (self.args.k8s_version.startswith('latest-') or self.args.k8s_version.startswith('stable-')):
             f = urllib.request.urlopen(f"https://dl.k8s.io/release/{self.args.k8s_version}.txt")
             raw_version = f.read().decode().strip()
             ver_obj = version.Version(raw_version)
         else:
             ver_obj = version.Version(self.args.k8s_version)
+            logging.info(f"Only provided with major and minor version. Determing latest micro version for k8s version: {ver_obj.major}.{ver_obj.minor}.")
             if ver_obj.micro == 0:
-                logging.info(f"Determing latest patch version for k8s version: {ver_obj.major}.{ver_obj.minor}.")
                 ver_obj = version.Version(self.get_latest_k8s_patch_version(f"{ver_obj.major}.{ver_obj.minor}"))
                 logging.info(f"Latest patch version for k8s version {ver_obj.major}.{ver_obj.minor} determined to be: {ver_obj.public}.")
 
-        logging.info(f"Setting k8s_version to {ver_obj}.")
+        logging.info(f"k8s_version parsed to {ver_obj}.")
         self.k8s_version = ver_obj
         return self.k8s_version
 
@@ -214,8 +213,9 @@ class KubeBuild(object):
 
     @timeit
     def check_upgrade_viability(self, dest_k8s_ver):
-        """given a disred k8s version, return true if we can upgrade to it."""
-        logging.info(f"checking status of nodes to see if we can upgrade to {dest_k8s_ver}.")
+        """given a desired k8s version, return true if we can upgrade to it."""
+        dest_k8s_ver_obj = self.get_k8s_version(raw_version=dest_k8s_ver)
+        logging.info(f"Checking status of nodes to see if upgrade to to {dest_k8s_ver_obj} is possible.")
 
         if self.args.dry_run:
             logging.info("DRY RUN: Would have parsed nodes yaml to get versions to make sure we can upgrade.")
@@ -234,13 +234,13 @@ class KubeBuild(object):
             node_versions.append(node_ver)
             logging.info(f"Found node {node_name} running kubelet version {node_ver}.")
         node_versions = set(node_versions)
-        dest_k8s_ver_obj = self.get_k8s_version(raw_version=dest_k8s_ver)
+        logging.info(f"Cluster found running versions: {node_versions}.")
 
         # TODO: add logic to bail when there are nodes of two different minor versions.
         # this is an un-upgradable scenario because one could be skipping a minor version.
         for c in node_versions:
             c_ver = version.Version(c)
-            logging.debug(f"current node version: {c_ver.public}")
+            logging.debug(f"Determining if upgrade from {c_ver.public} to {dest_k8s_ver_obj} is possible.")
             if c_ver is None:
                 logging.fatal(f'unable to determine node version dictionary: {c}')
             if dest_k8s_ver_obj.major != c_ver.major:
@@ -250,6 +250,7 @@ class KubeBuild(object):
             if minor_ver_diff > 1:
                 logging.exception('attempting to skip minor version upgrade. currently unsupported by kubeadm.')
                 raise
+            logging.info(f"Viable upgrade path for {c_ver.public} to {dest_k8s_ver_obj}.")
         return True
 
     @timeit
@@ -283,7 +284,7 @@ class KubeBuild(object):
                     if addresses["type"] == "InternalIP":
                         node_ip_address = addresses["address"]
                         nodes.append((node_name, node_ip_address))
-        logging.info(f"in get_nodes_from_cluster: nodes: {nodes}.")
+        logging.info(f"Nodes Found: Type {node_type}. List: {nodes}.")
         return nodes
 
     @timeit
@@ -329,7 +330,7 @@ class KubeBuild(object):
         k8s_ver = self.get_k8s_version()
 
         for node_name, node_ip in self.get_nodes_from_cluster(node_type):
-            logging.info(f"Upgrading control plane node {node_name} (ip: {node_ip}).")
+            logging.info(f"Starting upgrade_control_plane for {node_name} (ip: {node_ip}).")
 
             self.update_apt_repos(node_type, node_ip)
 
@@ -507,6 +508,8 @@ class KubeBuild(object):
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 'sudo systemctl restart containerd')
+            logging.info(f"done deploying container runtime to {node_ip}.")
+        logging.info(f"finished container runtime deploy.")
 
     @timeit
     def deploy_kubernetes_binaries(self, node_type):
@@ -555,7 +558,7 @@ class KubeBuild(object):
         for node_name, node_ip in self.get_nodes_from_cluster(node_type):
             logging.info(f"upgrading kubernetes binaries on {node_name} (ip: {node_ip}).")
             if specific_node and specific_node != node_ip:
-                logging.info(f"Only upgrading specific node: {node_ip}. Skipping this one.")
+                logging.info(f"This node ({node_ip}) does not match the specific one ({specific_node}) to upgrade. Skipping.")
                 continue
 
             self.run_command_via_ssh(
