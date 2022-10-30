@@ -473,11 +473,13 @@ class KubeBuild(object):
                 node_ip,
                 'sudo sysctl --system')
 
+            # TODO: move this into ansible or up to common instructions to only run once?
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 'sudo apt install -y apt-transport-https ca-certificates curl software-properties-common')
 
+            # TODO: can: all the below steps up to add-apt-repo be moved to ansible
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
@@ -601,6 +603,7 @@ class KubeBuild(object):
             try:
                 logging.debug(f"running {' '.join(command_list)}")
                 output = subprocess.check_output(command_list, stdin=cmd_stdin).decode()
+                # TODO: Remove? This is super noisy.
                 if output:
                     logging.debug(f"command output:\n{output}")
             except subprocess.CalledProcessError as err:
