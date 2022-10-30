@@ -723,7 +723,7 @@ class KubeBuild(object):
     @timeit
     def deploy_flannel(self):
         """deploy flannel to cluster."""
-        logging.info(f"deploying flanel to kubernetes cluster.")
+        logging.info(f"deploying flannel to kubernetes cluster.")
         self.run_command(
             f"{self.args.local_storage_dir}/kubectl apply "
             f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
