@@ -305,15 +305,15 @@ class KubeBuild(object):
                 f"sudo apt install -y kubeadm={k8s_version.public}-00 && "
                 f"sudo apt-mark hold kubeadm")
 
-            self.run_command(
-                f"{self.args.local_storage_dir}/kubectl "
-                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"drain {node_name} --ignore-daemonsets --delete-emptydir-data")
-
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 f"sudo kubeadm upgrade node")
+
+            self.run_command(
+                f"{self.args.local_storage_dir}/kubectl "
+                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+                f"drain {node_name} --ignore-daemonsets --delete-emptydir-data")
 
             self.upgrade_kubernetes_binaries(node_type, specific_node=node_ip)
 
