@@ -358,12 +358,8 @@ class KubeBuild(object):
                     logging.fatal(f"Installed kubeadm version mismatch. "
                                     f"Expected: {k8s_ver}. Found: {remote_version}.")
 
-            self.run_command(
-                f"{self.args.local_storage_dir}/kubectl "
-                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"drain {node_name} --ignore-daemonsets --delete-emptydir-data")
-
             if first_node_done is False:
+                # Only commands to run on the first control node.
                 self.run_command_via_ssh(
                     self.config.get(node_type, 'remote_user'),
                     node_ip,
@@ -375,10 +371,18 @@ class KubeBuild(object):
                     f"sudo kubeadm upgrade apply --yes v{k8s_ver.public}")
                 first_node_done = True
             else:
+                # Commands for all the other control nodes.
                 self.run_command_via_ssh(
                     self.config.get(node_type, 'remote_user'),
                     node_ip,
                     f"sudo kubeadm upgrade node")
+
+            self.run_command(
+                f"{self.args.local_storage_dir}/kubectl "
+                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+                f"drain {node_name} --ignore-daemonsets --delete-emptydir-data")
+
+            self.upgrade_kubernetes_binaries(node_type, specific_node=node_ip)
 
             self.run_command(
                 f"{self.args.local_storage_dir}/kubectl "
