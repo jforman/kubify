@@ -95,16 +95,12 @@ class KubeBuild(object):
         return latest.public
 
     def get_k8s_version(self, raw_version=None):
-        """parse the requested kubernetes version into."""
+        """parse the requested kubernetes version into self.k8s_version."""
         ver_obj = version.Version
 
         if self.k8s_version is not None:
             logging.info(f"Found cached k8s_version: {self.k8s_version}. Returning.")
             return self.k8s_version
-
-        if raw_version is not None:
-            ver_obj = version.Version(raw_version)
-            return ver_obj
 
         logging.debug(f"k8s version passed on command line: {self.args.k8s_version}")
 
@@ -112,8 +108,8 @@ class KubeBuild(object):
             len(self.args.k8s_version.split('.')) == 3,
             self.args.k8s_version.split('.')[-1] == '0'
             ]):
-            ver_obj = version.Version(self.args.k8s_version)
             logging.info(f"Requested to install micro version 0 of release {ver_obj.major}.{ver_obj.minor}.")
+            ver_obj = version.Version(self.args.k8s_version)
         elif (self.args.k8s_version.startswith('latest-') or self.args.k8s_version.startswith('stable-')):
             f = urllib.request.urlopen(f"https://dl.k8s.io/release/{self.args.k8s_version}.txt")
             raw_version = f.read().decode().strip()
