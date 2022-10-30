@@ -727,10 +727,17 @@ class KubeBuild(object):
     def deploy_flannel(self):
         """deploy flannel to cluster."""
         logging.info(f"deploying flannel to kubernetes cluster.")
+        # First one needed since k8s cluster has RBAC enabled.
+        # https://github.com/flannel-io/flannel/blob/master/Documentation/kubernetes.md#for-kubernetes-v16v115
+        # At some point is this not needed?
         self.run_command(
             f"{self.args.local_storage_dir}/kubectl apply "
             f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-            f"-f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml")
+            f"-f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/k8s-manifests/kube-flannel-rbac.yml")
+        self.run_command(
+            f"{self.args.local_storage_dir}/kubectl apply "
+            f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+            f"-f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml")
 
     @timeit
     def store_configs_locally(self):
