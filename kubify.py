@@ -427,7 +427,12 @@ class KubeBuild(object):
         self.run_command_via_ssh(
             self.config.get(node_type, 'remote_user'),
             node,
-            'sudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg')
+            'sudo mkdir -p /etc/apt/keyrings')
+
+        self.run_command_via_ssh(
+            self.config.get(node_type, 'remote_user'),
+            node,
+            'sudo curl -fsSLo /etc/apt/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg')
 
         self.deploy_file(
             f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/apt/sources.list.d/kubernetes.list",
