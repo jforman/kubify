@@ -506,6 +506,12 @@ class KubeBuild(object):
                 node_ip,
                 f'sudo apt update && sudo apt {apt_command} -y containerd.io')
 
+            self.deploy_file(
+                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/containerd/config.toml",
+                self.config.get(node_type, 'remote_user'),
+                node_ip,
+                "/etc/containerd/config.toml")
+
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
