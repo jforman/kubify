@@ -463,6 +463,23 @@ class KubeBuild(object):
 
             self.update_apt_repos(node_type, node_ip)
 
+            # https://kubernetes.io/docs/setup/production-environment/container-runtimes/
+            self.deploy_file(
+                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/modules-load.d/kubernetes.conf",
+                self.config.get(node_type, 'remote_user'),
+                node_ip,
+                "/etc/modules-load.d/kubernetes.conf")
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node_ip,
+                'sudo modprobe overlay')
+
+            self.run_command_via_ssh(
+                self.config.get(node_type, 'remote_user'),
+                node_ip,
+                'sudo modprobe br_netfilter')
+
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/sysctl.d/99-kubernetes-cri.conf",
                 self.config.get(node_type, 'remote_user'),
