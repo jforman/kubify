@@ -254,9 +254,9 @@ class KubeBuild(object):
         """given node_type, return list of tuples (node_name, node_ip) from cluster."""
         nodes = []
         if node_type == 'controller':
-            selector = "node-role.kubernetes.io/master"
+            selector = "node-role.kubernetes.io/control-plane"
         elif node_type == 'worker':
-            selector = "!node-role.kubernetes.io/master"
+            selector = "!node-role.kubernetes.io/control-plane"
         else:
             logging.error(f"Attempting to retrieve cluster nodes of type '{node_type}' which is unsupported.")
             sys.exit(1)
