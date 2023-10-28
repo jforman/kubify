@@ -94,6 +94,25 @@ class KubeBuild(object):
         logging.info(f"Latest candidate: {latest.public}")
         return latest.public
 
+    def get_k8s_full_code_version(self, node_ip, mmp_version_str):
+        """given major.minor.patch k8s version, find the packaged code version."""
+        logging.info("Getting full code version.")
+        command_output = self.run_command_via_ssh(
+            'ubuntu', # todo: fix this.
+            node_ip,
+            'apt list kubelet',
+            return_output=True)
+
+        # TODO: this regex seems overly lenient. figure out why kubelet/unknown
+        # wouldn't match.
+        search_string = f"kubelet.* ({mmp_version_str}-\S+.\S+) amd64"
+        logging.debug(f"Search string: {search_string}")
+        full_code_ver = re.search(search_string, command_output, re.MULTILINE).group(1)
+        logging.info(f"Found latest code version: {full_code_ver}")
+
+        return full_code_ver
+
+
     def get_k8s_version(self, raw_version=None):
         """parse the requested kubernetes version into self.k8s_version."""
         ver_obj = version.Version
@@ -292,13 +311,13 @@ class KubeBuild(object):
             logging.info(f"upgrading kubernetes node {node_name} (ip: {node_ip}) to {k8s_version.public}.")
 
             self.update_apt_repos(node_type, node_ip)
+            full_code_version = self.get_k8s_full_code_version(node_ip, k8s_version)
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 f"sudo apt-mark unhold kubeadm && "
-                f"sudo apt update && "
-                f"sudo apt install -y kubeadm={k8s_version.public}-00 && "
+                f"sudo apt install -y kubeadm={full_code_version} && "
                 f"sudo apt-mark hold kubeadm")
 
             self.run_command_via_ssh(
@@ -330,11 +349,13 @@ class KubeBuild(object):
 
             self.update_apt_repos(node_type, node_ip)
 
+            full_code_version = self.get_k8s_full_code_version(node_ip, k8s_ver)
+
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
-                f"sudo apt-mark unhold kubeadm={k8s_ver.major}.{k8s_ver.minor}.{k8s_ver.micro}-00 && "
-                f"sudo apt install -y kubeadm={k8s_ver.major}.{k8s_ver.minor}.{k8s_ver.micro}-00 && "
+                f"sudo apt-mark unhold kubeadm={full_code_version} && "
+                f"sudo apt install -y kubeadm={full_code_version} && "
                 f"sudo apt-mark hold kubeadm")
 
             remote_k8s_version = self.run_command_via_ssh(
@@ -544,15 +565,16 @@ class KubeBuild(object):
     @timeit
     def deploy_kubernetes_binaries(self, node_type):
         """deploy container runtime on nodes of node_type."""
+        k8s_version = self.get_k8s_version()
         for node in self.get_nodes(node_type):
             logging.info(f"deploying kubernetes binaries to {node}.")
 
-            self.update_apt_repos(node_type, node)
+            full_code_version = self.get_k8s_full_code_version(node, k8s_ver)
 
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                f"sudo apt install -y kubelet={self.get_k8s_version().public}-00 kubeadm={self.get_k8s_version().public}-00 kubectl={self.get_k8s_version().public}-00 nfs-common")
+                f"sudo apt install -y kubelet={full_code_version} kubeadm={full_code_version} kubectl={full_code_version} nfs-common")
 
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/default/kubelet",
@@ -591,12 +613,18 @@ class KubeBuild(object):
                 logging.info(f"This node ({node_ip}) does not match the specific one ({specific_node}) to upgrade. Skipping.")
                 continue
 
+            full_code_version = self.get_k8s_full_code_version(node_ip, k8s_version)
+
+            self.run_command(
+                f"{self.args.local_storage_dir}/kubectl "
+                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+                f"drain {node_name} --ignore-daemonsets --delete-emptydir-data")
+
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 f"sudo apt-mark unhold kubelet kubectl && "
-                f"sudo apt update && "
-                f"sudo apt install -y kubelet={k8s_version.major}.{k8s_version.minor}.{k8s_version.micro}-00 kubectl={k8s_version.major}.{k8s_version.minor}.{k8s_version.micro}-00 && "
+                f"sudo apt install -y kubelet={full_code_version} kubectl={full_code_version} && "
                 f"sudo apt-mark hold kubelet kubectl")
 
             self.run_command_via_ssh(
