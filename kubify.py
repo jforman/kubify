@@ -606,7 +606,7 @@ class KubeBuild(object):
     @timeit
     def upgrade_kubernetes_binaries(self, node_type, specific_node=None):
         """upgrade kubernetes binaries on nodes of node_type."""
-        k8s_version = self.get_k8s_version() 
+        k8s_version = self.get_k8s_version()
 
         for node_name, node_ip in self.get_nodes_from_cluster(node_type):
             logging.info(f"upgrading kubernetes binaries on {node_name} (ip: {node_ip}).")
