@@ -303,6 +303,45 @@ class KubeBuild(object):
         return nodes
 
     @timeit
+    def deploy_containerd(self, node_ip, node_user, apt_command):
+        # TODO: move all this to update_apt_repos
+        self.run_command_via_ssh(
+            node_user,
+            node_ip,
+            'sudo wget -O /tmp/docker-gpg-key https://download.docker.com/linux/ubuntu/gpg')
+
+        self.run_command_via_ssh(
+            node_user,
+            node_ip,
+            'sudo gpg -o /etc/apt/trusted.gpg.d/docker-archive-keyring.gpg --dearmor /tmp/docker-gpg-key')
+
+        self.run_command_via_ssh(
+            node_user,
+            node_ip,
+            'echo \"deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null')
+        # end move
+
+        self.run_command_via_ssh(
+            node_user,
+            node_ip,
+            f'sudo apt {apt_command} -y containerd.io')
+
+        self.deploy_file(
+            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/containerd/config.toml",
+            node_user,
+            node_ip,
+            "/etc/containerd/config.toml")
+
+        self.run_command_via_ssh(
+            node_user,
+            node_ip,
+            'sudo systemctl enable containerd')
+
+        self.run_command_via_ssh(
+            node_user,
+            node_ip,
+            'sudo systemctl restart containerd')
+
     def upgrade_nodes(self, node_type):
         """upgrade a set of nodes to the new kubernetes version."""
         k8s_version = self.get_k8s_version()
@@ -518,47 +557,6 @@ class KubeBuild(object):
                 node_ip,
                 'sudo apt install -y apt-transport-https ca-certificates curl software-properties-common')
 
-            # TODO: can: all the below steps up to add-apt-repo be moved to ansible
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                'sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /tmp/docker-archive-keyring.gpg')
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                'sudo gpg --dearmor --yes -o /usr/share/keyrings/docker-archive-keyring.gpg /tmp/docker-archive-keyring.gpg')
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                'sudo apt-key add /usr/share/keyrings/docker-archive-keyring.gpg')
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                "sudo add-apt-repository \"deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\"")
-                
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                f'sudo apt update && sudo apt {apt_command} -y containerd.io')
-
-            self.deploy_file(
-                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/containerd/config.toml",
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                "/etc/containerd/config.toml")
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                'sudo systemctl enable containerd')
-
-            self.run_command_via_ssh(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                'sudo systemctl restart containerd')
             logging.info(f"done deploying container runtime to {node_ip}.")
         logging.info(f"finished container runtime deploy.")
 
@@ -627,6 +625,8 @@ class KubeBuild(object):
                 f"sudo apt install -y kubelet={full_code_version} kubectl={full_code_version} && "
                 f"sudo apt-mark hold kubelet kubectl")
 
+            self.deploy_containerd(node_ip, self.config.get(node_type, 'remote_user'), apt_command='upgrade')
+
             self.run_command_via_ssh(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
@@ -636,6 +636,11 @@ class KubeBuild(object):
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 "sudo systemctl restart kubelet")
+
+            self.run_command(
+                f"{self.args.local_storage_dir}/kubectl "
+                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+                f"uncordon {node_name}")
 
     @timeit
     def run_command(self, cmd, return_output=False,
