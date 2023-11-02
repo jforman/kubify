@@ -342,12 +342,15 @@ class KubeBuild(object):
             node_ip,
             'sudo systemctl restart containerd')
 
-    def upgrade_nodes(self, node_type):
-        """upgrade a set of nodes to the new kubernetes version."""
+
+    @timeit
+    def upgrade_worker_nodes(self):
+        """upgrade worker nodes to new kubernetes version."""
         k8s_version = self.get_k8s_version()
+        node_type = 'worker'
 
         for node_name, node_ip in self.get_nodes_from_cluster(node_type):
-            logging.info(f"upgrading kubernetes node {node_name} (ip: {node_ip}) to {k8s_version.public}.")
+            logging.info(f"upgrading kubernetes worker node {node_name} (ip: {node_ip}) to {k8s_version.public}.")
 
             self.update_apt_repos(node_type, node_ip)
             full_code_version = self.get_k8s_full_code_version(node_ip, k8s_version)
@@ -874,8 +877,8 @@ class KubeBuild(object):
 
         logging.info(f"Executing kubify command: {self.args.command}")
         if self.args.command == 'install':
-            self.deploy_container_runtime('controller')
-            self.deploy_container_runtime('worker')
+            self.deploy_container_runtime('controller', apt_command=self.args.command)
+            self.deploy_container_runtime('worker', apt_command=self.args.command)
             self.deploy_kubernetes_binaries('controller')
             self.deploy_kubernetes_binaries('worker')
             self.initialize_control_plane()
@@ -887,9 +890,9 @@ class KubeBuild(object):
         elif self.args.command == 'upgrade':
             self.check_upgrade_viability(self.args.k8s_version)
             self.upgrade_control_plane(self.args.k8s_version)
-            self.deploy_container_runtime('controller', apt_command='upgrade')
-            self.upgrade_nodes('worker')
-            self.deploy_container_runtime('worker', apt_command='upgrade')
+            self.upgrade_kubernetes_binaries('controller')
+            self.deploy_container_runtime('controller', apt_command=self.args.command)
+            self.upgrade_worker_nodes()
             self.store_configs_locally()
         elif self.args.command == 'addnode':
             self.deploy_container_runtime('controller')
