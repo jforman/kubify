@@ -522,8 +522,6 @@ class KubeBuild(object):
         for node_ip in node_ips:
             logging.info(f"deploying container runtime to {node_ip}.")
 
-            self.update_apt_repos(node_type, node_ip)
-
             # https://kubernetes.io/docs/setup/production-environment/container-runtimes/
             self.deploy_file(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/modules-load.d/kubernetes.conf",
