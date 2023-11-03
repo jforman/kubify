@@ -367,17 +367,7 @@ class KubeBuild(object):
                 node_ip,
                 f"sudo kubeadm upgrade node")
 
-            self.run_command(
-                f"{self.args.local_storage_dir}/kubectl "
-                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"drain {node_name} --ignore-daemonsets --delete-emptydir-data")
-
-            self.upgrade_kubernetes_binaries(node_type, specific_node=node_ip)
-
-            self.run_command(
-                f"{self.args.local_storage_dir}/kubectl "
-                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"uncordon {node_name}")
+            self.upgrade_kubernetes_binaries('worker', specific_node=node_ip)
 
     @timeit
     def upgrade_control_plane(self, k8s_ver):
@@ -435,18 +425,6 @@ class KubeBuild(object):
                     self.config.get(node_type, 'remote_user'),
                     node_ip,
                     f"sudo kubeadm upgrade node")
-
-            self.run_command(
-                f"{self.args.local_storage_dir}/kubectl "
-                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"drain {node_name} --ignore-daemonsets --delete-emptydir-data")
-
-            self.upgrade_kubernetes_binaries(node_type, specific_node=node_ip)
-
-            self.run_command(
-                f"{self.args.local_storage_dir}/kubectl "
-                f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
-                f"uncordon {node_name}")
         logging.info("finished upgrade_control_plane")
 
     @timeit
