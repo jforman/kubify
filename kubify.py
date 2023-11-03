@@ -486,22 +486,40 @@ class KubeBuild(object):
     def update_apt_repos(self, node_type, node):
         """deploy apt repo configs and update apt repositories on node."""
         logging.info(f"Updating APT repositories on node {node}.")
+        k8s_version = self.get_k8s_version()
+
 
         self.run_command_via_ssh(
             self.config.get(node_type, 'remote_user'),
             node,
             'sudo mkdir -p /etc/apt/keyrings')
 
-        self.run_command_via_ssh(
-            self.config.get(node_type, 'remote_user'),
-            node,
-            'sudo curl -fsSLo /etc/apt/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg')
+        self.write_template(
+            f"{self.kubify_dirs['TEMPLATE_DIR']}/etc/apt/sources.list.d/kubernetes.list.j2",
+            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubernetes.list",
+            {
+                'major': self.get_k8s_version().major,
+                'minor': self.get_k8s_version().minor,
+
+            })
 
         self.deploy_file(
-            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/apt/sources.list.d/kubernetes.list",
+            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubernetes.list",
             self.config.get(node_type, 'remote_user'),
             node,
             "/etc/apt/sources.list.d/kubernetes.list")
+
+        self.run_command_via_ssh(
+            self.config.get(node_type, 'remote_user'),
+            node,
+            f"curl -fsSLo /tmp/kubernetes-archive-keyring.gpg https://pkgs.k8s.io/core:/stable:/v{k8s_version.major}.{k8s_version.minor}/deb/Release.key",
+        )
+
+        self.run_command_via_ssh(
+            self.config.get(node_type, 'remote_user'),
+            node,
+            "sudo gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes-archive-keyring.gpg"
+        )
 
         self.run_command_via_ssh(
             self.config.get(node_type, 'remote_user'),
