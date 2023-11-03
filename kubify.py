@@ -418,6 +418,8 @@ class KubeBuild(object):
                     self.config.get(node_type, 'remote_user'),
                     node_ip,
                     f"sudo kubeadm upgrade apply --yes v{k8s_ver.public}")
+
+                self.deploy_flannel()
                 first_node_done = True
             else:
                 # Commands for all the other control nodes.
