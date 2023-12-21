@@ -313,7 +313,7 @@ class KubeBuild(object):
         self.run_command_via_ssh(
             node_user,
             node_ip,
-            'sudo gpg -o /etc/apt/trusted.gpg.d/docker-archive-keyring.gpg --dearmor /tmp/docker-gpg-key')
+            'sudo gpg --batch --yes -o /etc/apt/trusted.gpg.d/docker-archive-keyring.gpg --dearmor /tmp/docker-gpg-key')
 
         self.run_command_via_ssh(
             node_user,
@@ -498,7 +498,7 @@ class KubeBuild(object):
         self.run_command_via_ssh(
             self.config.get(node_type, 'remote_user'),
             node,
-            "sudo gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes-archive-keyring.gpg"
+            "sudo gpg --dearmor --batch --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes-archive-keyring.gpg"
         )
 
         self.run_command_via_ssh(
