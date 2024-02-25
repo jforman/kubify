@@ -101,6 +101,7 @@ class KubeBuild(object):
             'ubuntu', # todo: fix this.
             node_ip,
             'apt list kubelet',
+            noop_command=True,
             return_output=True)
 
         # TODO: this regex seems overly lenient. figure out why kubelet/unknown
@@ -178,7 +179,7 @@ class KubeBuild(object):
 
     @timeit
     def run_command_via_ssh(self, remote_user, remote_host, command,
-                            ignore_errors=False, return_output=False):
+                            ignore_errors=False, return_output=False, noop_command=False):
         """ssh to remote host and run specified command."""
         ssh_args = ('-o UserKnownHostsFile=/dev/null '
                     '-o StrictHostKeyChecking=no '
@@ -188,6 +189,7 @@ class KubeBuild(object):
             f"ssh {ssh_args} {remote_user}@{remote_host} {command}",
             ignore_errors=ignore_errors,
             return_output=return_output,
+            noop_command=noop_command,
             )
 
         if return_output:
