@@ -489,7 +489,7 @@ class KubeBuild(object):
             f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubernetes.list",
             self.config.get(node_type, 'remote_user'),
             node,
-            "/etc/apt/sources.list.d/kubernetes.list")
+            f"/etc/apt/sources.list.d/kubernetes-v{self.get_k8s_version().major}.{self.get_k8s_version().minor}.list")
 
         self.run_command_via_ssh(
             self.config.get(node_type, 'remote_user'),
