@@ -234,15 +234,12 @@ class KubeBuild(object):
         dest_k8s_ver_obj = self.get_k8s_version(raw_version=dest_k8s_ver)
         logging.info(f"Checking status of nodes to see if upgrade to to {dest_k8s_ver_obj} is possible.")
 
-        if self.args.dry_run:
-            logging.info("DRY RUN: Would have parsed nodes yaml to get versions to make sure we can upgrade.")
-            return
-
         kubectl_getnodes_output = self.run_command(
             f"{self.args.local_storage_dir}/kubectl "
             f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
             "get nodes -o yaml",
-            return_output=True)
+            return_output=True,
+            noop_command=True)
         nodes_yaml = yaml.safe_load(kubectl_getnodes_output)
         node_versions = []
         for cur_node in nodes_yaml['items']:
