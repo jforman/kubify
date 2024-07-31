@@ -69,10 +69,6 @@ class KubeBuild(object):
 
         return timed
 
-    def get_node_ip_addresses(self, node_type):
-        """get list of node IPs."""
-        return self.config.get(node_type, 'ip_addresses').split(',')
-
     def get_latest_k8s_patch_version(self, r_version_str):
         """given a major.minor version, find the latest patch version available."""
         f = urllib.request.urlopen("https://api.github.com/repos/kubernetes/kubernetes/releases")
