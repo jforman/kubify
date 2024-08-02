@@ -4,9 +4,11 @@ import argparse
 import base64
 import configparser
 import inspect
+import ipaddress
 import json
 import logging
 import os
+import paramiko
 import re
 import shutil
 import string
@@ -93,7 +95,7 @@ class KubeBuild(object):
     def get_k8s_full_code_version(self, node_ip, mmp_version_str):
         """given major.minor.patch k8s version, find the packaged code version."""
         logging.info("Getting full code version.")
-        command_output = self.run_command_via_ssh(
+        command_output = self.run_command_via_ssh_paramiko(
             'ubuntu', # todo: fix this.
             node_ip,
             'apt list kubelet',
@@ -174,6 +176,93 @@ class KubeBuild(object):
         )
 
     @timeit
+    def scp_get_via_paramiko(self, remote_user, remote_host, remote_path, local_path):
+        """copy local file to remote destination."""
+        logging.info(f"Attempting to retrieve {remote_user}@{remote_host}:{remote_path} to {local_path}.")
+        if self.args.dry_run:
+                logging.info(f"DRY RUN: Would have copied {local_path} to {remote_host}:{remote_path}.")
+                return
+        file_basename = os.path.basename(local_path)
+        logging.debug(f"SCP file basename: {file_basename}")
+        try:
+            # heavily adopted from
+            # https://stackoverflow.com/questions/3635131/paramikos-sshclient-with-sftp#66724076
+            logging.debug(f"Creating paramiko SSH client.")
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(remote_host, username=remote_user)
+            sftp = client.open_sftp()
+            sftp.get(remote_path, local_path)
+        except Exception as e:
+            logging.fatal(f"Error when getting file via SFTP: {e}.")
+            logging.debug(f"Closing sftp client.")
+            sftp.close()
+            raise
+
+        logging.info(f"Done retrieving file.")
+
+    @timeit
+    def scp_put_via_paramiko(self, local_path, remote_user, remote_host,
+                             remote_path, noop_command=False):
+        """copy local file to remote destination."""
+        # heavily adopted from
+        # https://stackoverflow.com/questions/3635131/paramikos-sshclient-with-sftp#66724076
+
+        if self.args.dry_run:
+                logging.info(f"DRY RUN: Would have copied {local_path} to {remote_host}:{remote_path}.")
+                return
+
+        logging.debug(f"Creating paramiko SSH client.")
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(remote_host, username=remote_user)
+        sftp = client.open_sftp()
+
+        try:
+            file_basename = os.path.basename(local_path)
+            sftp.put(local_path, file_basename)
+            self.run_command_via_ssh_paramiko(
+                remote_user, remote_host,
+                f"sudo cp {file_basename} {remote_path}")
+        except Exception as e:
+            logging.fatal(f"Error in SFP put: {e}.")
+            logging.debug(f"Closing sftp client.")
+            sftp.close()
+            raise
+
+        logging.info(f"Done uploading file via SFTP.")
+
+    @timeit
+    def run_command_via_ssh_paramiko(self, remote_user, remote_host, command,
+                                     ignore_errors=False, return_output=False,
+                                     noop_command=False):
+        if self.args.dry_run:
+            if noop_command:
+                logging.info(f"DRY RUN AND NOOP: Execute: { command }")
+            else:
+                # If we run dry run, but it's a command that will mutate things,
+                # dont run it.
+                logging.info(f"DRY RUN AND MUTATE: Don't Execute: { command }")
+                return
+
+        logging.info(f"Executing command via paramiko on {remote_host}: {command}")
+        logging.debug(f"Creating paramiko SSH client.")
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(remote_host, port=22, username=remote_user)
+        stdin, stdout, stderr = client.exec_command(command)
+
+        output = stdout.read().decode('utf-8')
+        error = stderr.read().decode('utf-8')
+        logging.debug(f"Paramiko stdout: {output}")
+        logging.debug(f"Paramiko stderr: {error}")
+        client.close()
+        logging.debug(f"Closing paramiko SSH client.")
+
+        if return_output:
+            return output
+
+    @timeit
     def run_command_via_ssh(self, remote_user, remote_host, command,
                             ignore_errors=False, return_output=False, noop_command=False):
         """ssh to remote host and run specified command."""
@@ -191,23 +280,6 @@ class KubeBuild(object):
         if return_output:
             return output
 
-    @timeit
-    def deploy_file(self, local_path, remote_user, remote_host, remote_path,
-                    executable=False):
-        """given local file(s) path, copy the file to a remote host and path."""
-
-        bare_filenames = [os.path.basename(x) for x in local_path.split()]
-        bare_filenames_str = " ".join(bare_filenames)
-        self.scp_file(local_path, remote_user, remote_host, '~/')
-
-        if executable:
-            self.run_command_via_ssh(
-                remote_user, remote_host,
-                f"chmod +x {bare_filenames_str}")
-
-        self.run_command_via_ssh(
-            remote_user, remote_host,
-            f"sudo cp {bare_filenames_str} {remote_path}")
 
     @timeit
     def write_template(self, input_template, output_path, template_vars):
@@ -299,40 +371,23 @@ class KubeBuild(object):
 
     @timeit
     def deploy_containerd(self, node_ip, node_user, apt_command):
-        # TODO: move all this to update_apt_repos
-        self.run_command_via_ssh(
-            node_user,
-            node_ip,
-            'sudo wget -O /tmp/docker-gpg-key https://download.docker.com/linux/ubuntu/gpg')
-
-        self.run_command_via_ssh(
-            node_user,
-            node_ip,
-            'sudo gpg --batch --yes -o /etc/apt/trusted.gpg.d/docker-archive-keyring.gpg --dearmor /tmp/docker-gpg-key')
-
-        self.run_command_via_ssh(
-            node_user,
-            node_ip,
-            'echo \"deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null')
-        # end move
-
-        self.run_command_via_ssh(
+        self.run_command_via_ssh_paramiko(
             node_user,
             node_ip,
             f'sudo apt {apt_command} -y containerd.io')
 
-        self.deploy_file(
+        self.scp_put_via_paramiko(
             f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/containerd/config.toml",
             node_user,
             node_ip,
             "/etc/containerd/config.toml")
 
-        self.run_command_via_ssh(
+        self.run_command_via_ssh_paramiko(
             node_user,
             node_ip,
             'sudo systemctl enable containerd')
 
-        self.run_command_via_ssh(
+        self.run_command_via_ssh_paramiko(
             node_user,
             node_ip,
             'sudo systemctl restart containerd')
@@ -350,14 +405,14 @@ class KubeBuild(object):
             self.update_apt_repos(node_type, node_ip)
             full_code_version = self.get_k8s_full_code_version(node_ip, k8s_version)
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 f"sudo apt-mark unhold kubeadm && "
                 f"sudo apt install -y kubeadm={full_code_version} && "
                 f"sudo apt-mark hold kubeadm")
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 f"sudo kubeadm upgrade node")
@@ -378,14 +433,14 @@ class KubeBuild(object):
 
             full_code_version = self.get_k8s_full_code_version(node_ip, k8s_ver)
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 f"sudo apt-mark unhold kubeadm={full_code_version} && "
                 f"sudo apt install -y kubeadm={full_code_version} && "
                 f"sudo apt-mark hold kubeadm")
 
-            remote_k8s_version = self.run_command_via_ssh(
+            remote_k8s_version = self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 "kubeadm version -o yaml",
@@ -404,12 +459,12 @@ class KubeBuild(object):
 
             if first_node_done is False:
                 # Only commands to run on the first control node.
-                self.run_command_via_ssh(
+                self.run_command_via_ssh_paramiko(
                     self.config.get(node_type, 'remote_user'),
                     node_ip,
                     'sudo kubeadm upgrade plan')
 
-                self.run_command_via_ssh(
+                self.run_command_via_ssh_paramiko(
                     self.config.get(node_type, 'remote_user'),
                     node_ip,
                     f"sudo kubeadm upgrade apply --yes v{k8s_ver.public}")
@@ -418,7 +473,7 @@ class KubeBuild(object):
                 first_node_done = True
             else:
                 # Commands for all the other control nodes.
-                self.run_command_via_ssh(
+                self.run_command_via_ssh_paramiko(
                     self.config.get(node_type, 'remote_user'),
                     node_ip,
                     f"sudo kubeadm upgrade node")
@@ -458,49 +513,70 @@ class KubeBuild(object):
                 ignore_errors=True)
 
     @timeit
-    def update_apt_repos(self, node_type, node):
+    def update_apt_repos(self, node_type, node_ip=None):
         """deploy apt repo configs and update apt repositories on node."""
-        logging.info(f"Updating APT repositories on node {node}.")
         k8s_version = self.get_k8s_version()
 
+        if node_ip:
+            node_list=[node_ip]
+        else:
+            node_list=self.get_nodes(node_type, node_source="config")
 
-        self.run_command_via_ssh(
-            self.config.get(node_type, 'remote_user'),
-            node,
-            'sudo mkdir -p /etc/apt/keyrings')
+        for node in node_list:
+            logging.info(f"Updating APT repositories on node {node}.")
+            self.run_command_via_ssh_paramiko(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                'sudo mkdir -p /etc/apt/keyrings')
 
-        self.write_template(
-            f"{self.kubify_dirs['TEMPLATE_DIR']}/etc/apt/sources.list.d/kubernetes.list.j2",
-            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubernetes.list",
-            {
-                'major': self.get_k8s_version().major,
-                'minor': self.get_k8s_version().minor,
+            self.write_template(
+                f"{self.kubify_dirs['TEMPLATE_DIR']}/etc/apt/sources.list.d/kubernetes.list.j2",
+                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubernetes.list",
+                {
+                    'major': self.get_k8s_version().major,
+                    'minor': self.get_k8s_version().minor,
+                })
 
-            })
+            # Kubernetes Repository
+            self.scp_put_via_paramiko(
+                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubernetes.list",
+                self.config.get(node_type, 'remote_user'),
+                node,
+                f"/etc/apt/sources.list.d/kubernetes-v{self.get_k8s_version().major}.{self.get_k8s_version().minor}.list")
 
-        self.deploy_file(
-            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubernetes.list",
-            self.config.get(node_type, 'remote_user'),
-            node,
-            f"/etc/apt/sources.list.d/kubernetes-v{self.get_k8s_version().major}.{self.get_k8s_version().minor}.list")
+            self.run_command_via_ssh_paramiko(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                f"curl -fsSLo /tmp/kubernetes-archive-keyring.gpg https://pkgs.k8s.io/core:/stable:/v{k8s_version.major}.{k8s_version.minor}/deb/Release.key",
+            )
 
-        self.run_command_via_ssh(
-            self.config.get(node_type, 'remote_user'),
-            node,
-            f"curl -fsSLo /tmp/kubernetes-archive-keyring.gpg https://pkgs.k8s.io/core:/stable:/v{k8s_version.major}.{k8s_version.minor}/deb/Release.key",
-        )
+            self.run_command_via_ssh_paramiko(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                "sudo gpg --dearmor --batch --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes-archive-keyring.gpg"
+            )
 
-        self.run_command_via_ssh(
-            self.config.get(node_type, 'remote_user'),
-            node,
-            "sudo gpg --dearmor --batch --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/kubernetes-archive-keyring.gpg"
-        )
+            # Docker Repository
+            self.run_command_via_ssh_paramiko(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                'sudo wget -O /tmp/docker-gpg-key https://download.docker.com/linux/ubuntu/gpg')
 
-        self.run_command_via_ssh(
-            self.config.get(node_type, 'remote_user'),
-            node,
-            "sudo apt update")
-        logging.info(f"Done updating APT repositories on node {node}.")
+            self.run_command_via_ssh_paramiko(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                'sudo gpg --batch --yes -o /etc/apt/trusted.gpg.d/docker-archive-keyring.gpg --dearmor /tmp/docker-gpg-key')
+
+            self.run_command_via_ssh_paramiko(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                'echo \"deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null')
+
+            self.run_command_via_ssh_paramiko(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                "sudo apt update")
+            logging.info(f"Done updating APT repositories on node {node}.")
 
     @timeit
     def deploy_container_runtime(self, node_type, apt_command='install'):
@@ -518,35 +594,35 @@ class KubeBuild(object):
             logging.info(f"deploying container runtime to {node_ip}.")
 
             # https://kubernetes.io/docs/setup/production-environment/container-runtimes/
-            self.deploy_file(
+            self.scp_put_via_paramiko(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/modules-load.d/kubernetes.conf",
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 "/etc/modules-load.d/kubernetes.conf")
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 'sudo modprobe overlay')
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 'sudo modprobe br_netfilter')
 
-            self.deploy_file(
+            self.scp_put_via_paramiko(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/sysctl.d/99-kubernetes-cri.conf",
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 "/etc/sysctl.d/99-kubernetes-cri.conf")
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 'sudo sysctl --system')
 
             # TODO: move this into ansible or up to common instructions to only run once?
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 'sudo apt install -y apt-transport-https ca-certificates curl software-properties-common')
@@ -568,7 +644,7 @@ class KubeBuild(object):
                 node,
                 f"sudo apt install -y kubelet={full_code_version} kubeadm={full_code_version} kubectl={full_code_version} nfs-common")
 
-            self.deploy_file(
+            self.scp_put_via_paramiko(
                 f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/default/kubelet",
                 self.config.get(node_type, 'remote_user'),
                 node,
@@ -612,7 +688,7 @@ class KubeBuild(object):
                 f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
                 f"drain {node_name} --ignore-daemonsets --delete-emptydir-data")
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 f"sudo apt-mark unhold kubelet kubectl && "
@@ -621,12 +697,12 @@ class KubeBuild(object):
 
             self.deploy_containerd(node_ip, self.config.get(node_type, 'remote_user'), apt_command='upgrade')
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 "sudo systemctl daemon-reload")
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node_ip,
                 "sudo systemctl restart kubelet")
@@ -704,7 +780,7 @@ class KubeBuild(object):
                         'kubernetes_version': f"{k8s_version.major}.{k8s_version.minor}.{k8s_version.micro}",
                     })
 
-                self.deploy_file(
+                self.scp_put_via_paramiko(
                     f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubeadm-config.yaml",
                     self.config.get('controller', 'remote_user'),
                     node,
@@ -796,12 +872,12 @@ class KubeBuild(object):
         # Arbitrarily pick the first controller.
         hostname = self.get_nodes('controller')[0]
 
-        self.run_command_via_ssh(
+        self.run_command_via_ssh_paramiko(
             self.config.get('controller', 'remote_user'),
             hostname,
             f"sudo cp /etc/kubernetes/admin.conf /home/{self.config.get('controller', 'remote_user')}/")
 
-        self.run_command_via_ssh(
+        self.run_command_via_ssh_paramiko(
             self.config.get('controller', 'remote_user'),
             hostname,
             f"sudo chown {self.config.get('controller', 'remote_user')} "
@@ -821,15 +897,14 @@ class KubeBuild(object):
                 os.rename(f"{self.args.local_storage_dir}/admin.conf",
                           f"{self.args.local_storage_dir}/admin.conf.{timestamp}")
 
-        self.run_command(
-            f"scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
-            f"{self.config.get('controller', 'remote_user')}@{hostname}:~/admin.conf "
-            f"{self.args.local_storage_dir}/admin.conf")
 
-        self.run_command(
-            f"scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "
-            f"{self.config.get('controller', 'remote_user')}@{hostname}:/usr/bin/kubectl "
-            f"{self.args.local_storage_dir}/kubectl")
+        self.scp_get_via_paramiko(self.config.get('controller', 'remote_user'),
+                                  hostname, 'admin.conf',
+                                  f"{self.args.local_storage_dir}/admin.conf")
+
+        self.scp_get_via_paramiko(self.config.get('controller', 'remote_user'),
+                                  hostname, '/usr/bin/kubectl',
+                                  f"{self.args.local_storage_dir}/kubectl")
 
     @timeit
     def get_kubeadm_join_tokens(self):
@@ -868,6 +943,8 @@ class KubeBuild(object):
 
         logging.info(f"Executing kubify command: {self.args.command}")
         if self.args.command == 'install':
+            self.update_apt_repos('controller')
+            self.update_apt_repos('worker')
             self.deploy_container_runtime('controller', apt_command=self.args.command)
             self.deploy_container_runtime('worker', apt_command=self.args.command)
             self.deploy_kubernetes_binaries('controller')
