@@ -639,7 +639,7 @@ class KubeBuild(object):
 
             full_code_version = self.get_k8s_full_code_version(node, k8s_ver)
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
                 f"sudo apt install -y kubelet={full_code_version} kubeadm={full_code_version} kubectl={full_code_version} nfs-common")
@@ -650,22 +650,22 @@ class KubeBuild(object):
                 node,
                 "/etc/default/kubelet")
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
                 "sudo systemctl daemon-reload")
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
                 "sudo systemctl restart kubelet")
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
                 "sudo modprobe br_netfilter")
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
                 "sudo apt-mark hold kubelet kubeadm kubectl")
@@ -794,7 +794,7 @@ class KubeBuild(object):
                 if self.args.kubeadm_init_extra_flags:
                     kubeadm_init_command = f"{kubeadm_init_command} {self.args.kubeadm_init_extra_flags}"
 
-                kubeadm_output = self.run_command_via_ssh(
+                kubeadm_output = self.run_command_via_ssh_paramiko(
                     self.config.get(node_type, 'remote_user'),
                     node,
                     kubeadm_init_command,
@@ -810,7 +810,7 @@ class KubeBuild(object):
                 initialized_first_node = True
 
             else:
-                self.run_command_via_ssh(
+                self.run_command_via_ssh_paramiko(
                     self.config.get(node_type, 'remote_user'),
                     node,
                     f"sudo kubeadm join {self.config.get('general', 'api_server_loadbalancer_hostport')} "
@@ -917,7 +917,7 @@ class KubeBuild(object):
                 node,
                 "sudo kubeadm token create --print-join-command",
                 return_output=True)
-            upload_certs_output = self.run_command_via_ssh(
+            upload_certs_output = self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
                 "sudo kubeadm init phase upload-certs --upload-certs",
