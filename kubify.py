@@ -775,9 +775,11 @@ class KubeBuild(object):
                     f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubeadm-config.yaml",
                     {
                         'api_server_loadbalancer_hostport': self.config.get('general', 'api_server_loadbalancer_hostport'),
-                        'service_subnet': self.config.get('general', 'service_subnet'),
-                        'pod_subnet': self.config.get('general', 'pod_subnet'),
+                        'cluster_name': self.config.get('general', 'cluster_name'),
+                        'dns_domain': self.config.get('general', 'dns_domain'),
                         'kubernetes_version': f"{k8s_version.major}.{k8s_version.minor}.{k8s_version.micro}",
+                        'pod_subnet': self.config.get('general', 'pod_subnet'),
+                        'service_subnet': self.config.get('general', 'service_subnet'),
                     })
 
                 self.scp_put_via_paramiko(
