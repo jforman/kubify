@@ -954,7 +954,6 @@ class KubeBuild(object):
             self.initialize_control_plane()
             self.join_worker_nodes()
             self.store_configs_locally()
-            self.deploy_flannel()
             self.reboot_hosts('controller')
             self.reboot_hosts('worker')
         elif self.args.command == 'upgrade':
