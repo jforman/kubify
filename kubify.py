@@ -496,7 +496,7 @@ class KubeBuild(object):
             return nodes
 
         logging.debug("Getting node information from config.")
-        nodes = self.get_node_ip_addresses(node_type)
+        nodes = self.config.get(node_type, 'ip_addresses').split(',')
         logging.debug(f"Node {node_type} IPs: {nodes}")
 
         return nodes
