@@ -92,11 +92,11 @@ class KubeBuild(object):
         logging.info(f"Latest candidate: {latest.public}")
         return latest.public
 
-    def get_k8s_full_code_version(self, node_ip, mmp_version_str):
+    def get_k8s_full_code_version(self, remote_user, node_ip, mmp_version_str):
         """given major.minor.patch k8s version, find the packaged code version."""
         logging.info("Getting full code version.")
         command_output = self.run_command_via_ssh_paramiko(
-            'ubuntu', # todo: fix this.
+            remote_user,
             node_ip,
             'apt list kubelet',
             noop_command=True,
@@ -403,7 +403,10 @@ class KubeBuild(object):
             logging.info(f"upgrading kubernetes worker node {node_name} (ip: {node_ip}) to {k8s_version.public}.")
 
             self.update_apt_repos(node_type, node_ip)
-            full_code_version = self.get_k8s_full_code_version(node_ip, k8s_version)
+            full_code_version = self.get_k8s_full_code_version(
+                self.config.get(node_type, 'remote_user'),
+                node_ip,
+                k8s_version)
 
             self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
@@ -431,7 +434,10 @@ class KubeBuild(object):
 
             self.update_apt_repos(node_type, node_ip)
 
-            full_code_version = self.get_k8s_full_code_version(node_ip, k8s_ver)
+            full_code_version = self.get_k8s_full_code_version(
+                self.config.get(node_type, 'remote_user'),
+                node_ip,
+                k8s_ver)
 
             self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
@@ -637,7 +643,10 @@ class KubeBuild(object):
         for node in self.get_nodes(node_type):
             logging.info(f"deploying kubernetes binaries to {node}.")
 
-            full_code_version = self.get_k8s_full_code_version(node, k8s_ver)
+            full_code_version = self.get_k8s_full_code_version(
+                self.config.get(node_type, 'remote_user'),
+                node,
+                k8s_version)
 
             self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
@@ -683,7 +692,10 @@ class KubeBuild(object):
                 logging.info(f"This node ({node_ip}) does not match the specific one ({specific_node}) to upgrade. Skipping.")
                 continue
 
-            full_code_version = self.get_k8s_full_code_version(node_ip, k8s_version)
+            full_code_version = self.get_k8s_full_code_version(
+                self.config.get(node_type, 'remote_user'),
+                node_ip,
+                k8s_version)
 
             self.run_command(
                 f"{self.args.local_storage_dir}/kubectl "
