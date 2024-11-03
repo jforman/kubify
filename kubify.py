@@ -633,6 +633,11 @@ class KubeBuild(object):
                 node_ip,
                 'sudo apt install -y apt-transport-https ca-certificates curl software-properties-common')
 
+            self.deploy_containerd(
+                node_ip,
+                self.config.get(node_type, 'remote_user'),
+                apt_command)
+
             logging.info(f"done deploying container runtime to {node_ip}.")
         logging.info(f"finished container runtime deploy.")
 
