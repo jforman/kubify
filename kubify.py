@@ -854,15 +854,32 @@ class KubeBuild(object):
     @timeit
     def join_worker_nodes(self):
         """join the worker nodes to the cluster."""
+
+        if self.discovery_token_ca_cert_hash:
+            logging.info(f"Reusing existing join credentials to add worker nodes.")
+            join_command = (
+                f"sudo kubeadm join {self.config.get('general', 'api_server_loadbalancer_hostport')} "
+                f"--token {self.join_token} "
+                f"--discovery-token-ca-cert-hash {self.discovery_token_ca_cert_hash} ")
+        else:       
+            logging.info(f"No discovery token found for joining nodes. Need to create a new one to join.")
+            node_type='controller'
+            node_user=self.config.get(node_type, 'remote_user')
+            node_ip=self.get_nodes(node_type)[0]
+
+            join_command = self.run_command_via_ssh_paramiko(
+                node_user,
+                node_ip,
+                f"sudo kubeadm token create --print-join-command",
+                return_output=True)
+
         for node in self.get_nodes('worker'):
             logging.info(f"adding worker node at {node}.")
 
             self.run_command_via_ssh(
                 self.config.get('worker', 'remote_user'),
                 node,
-                f"sudo kubeadm join {self.config.get('general', 'api_server_loadbalancer_hostport')} "
-                f"--token {self.join_token} "
-                f"--discovery-token-ca-cert-hash {self.discovery_token_ca_cert_hash} ")
+                f"sudo {join_command}")
 
     @timeit
     def join_nodes(self, token, discovery_token, node_type, certificate_key=None):
