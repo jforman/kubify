@@ -1,7 +1,9 @@
-apiVersion: kubeadm.k8s.io/v1beta3
+apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
-kubernetesVersion: v{{kubernetes_version}}
-controlPlaneEndpoint: {{api_server_loadbalancer_hostport}}
+kubernetesVersion: v{{ kubernetes_version }}
+controlPlaneEndpoint: {{ api_server_loadbalancer_hostport }}
 networking:
-  serviceSubnet: {{service_subnet}}
-  podSubnet: {{pod_subnet}}
+  dnsDomain: "{{ dns_domain }}"
+  serviceSubnet: "{{ service_subnet }}"
+  podSubnet: "{{ pod_subnet }}"
+clusterName: "{{ cluster_name }}"
