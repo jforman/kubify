@@ -620,34 +620,6 @@ class KubeBuild(object):
         for node_ip in node_ips:
             logging.info(f"deploying container runtime to {node_ip}.")
 
-            # https://kubernetes.io/docs/setup/production-environment/container-runtimes/
-            self.scp_put_via_paramiko(
-                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/modules-load.d/kubernetes.conf",
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                "/etc/modules-load.d/kubernetes.conf")
-
-            self.run_command_via_ssh_paramiko(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                'sudo modprobe overlay')
-
-            self.run_command_via_ssh_paramiko(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                'sudo modprobe br_netfilter')
-
-            self.scp_put_via_paramiko(
-                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/sysctl.d/99-kubernetes-cri.conf",
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                "/etc/sysctl.d/99-kubernetes-cri.conf")
-
-            self.run_command_via_ssh_paramiko(
-                self.config.get(node_type, 'remote_user'),
-                node_ip,
-                'sudo sysctl --system')
-
             # TODO: move this into ansible or up to common instructions to only run once?
             self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
