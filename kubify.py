@@ -875,9 +875,16 @@ class KubeBuild(object):
         """deploy flannel to cluster."""
         logging.info(f"deploying flannel to kubernetes cluster.")
         # https://github.com/flannel-io/flannel
-        self.run_command(
-            f"{self.args.local_storage_dir}/kubectl apply "
-            f"--kubeconfig={self.args.local_storage_dir}/admin.conf "
+        node_type='controller'
+        node_user=self.config.get(node_type, 'remote_user')
+        node_ip=self.get_nodes(node_type)[0]
+
+        logging.info(f"Installing flannel via {node_type} node {node_ip}.")
+
+        self.run_command_via_ssh_paramiko(
+            node_user,
+            node_ip,
+            f"sudo kubectl --kubeconfig /etc/kubernetes/admin.conf apply "
             f"-f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml")
 
     @timeit
