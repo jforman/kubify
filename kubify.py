@@ -370,28 +370,49 @@ class KubeBuild(object):
         return nodes
 
     @timeit
-    def deploy_containerd(self, node_ip, node_user, apt_command):
-        self.run_command_via_ssh_paramiko(
-            node_user,
-            node_ip,
-            f'sudo apt {apt_command} -y containerd.io')
+    def deploy_crio(self, node_ip, node_user, apt_command):
+        """deploy crio cri to kubernets host."""
+        logging.info("Deploying crio.")
+        self.write_template(
+            f"{self.kubify_dirs['TEMPLATE_DIR']}/etc/apt/sources.list.d/cri-o.list.j2",
+            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/crio-o.list",
+            {
+                'major': self.get_k8s_version().major,
+                'minor': self.get_k8s_version().minor,
+            })
 
         self.scp_put_via_paramiko(
-            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/containerd/config.toml",
+            f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/crio-o.list",
             node_user,
             node_ip,
-            "/etc/containerd/config.toml")
-
+            "/etc/apt/sources.list.d/cri-o.list")
+        
+        
         self.run_command_via_ssh_paramiko(
             node_user,
             node_ip,
-            'sudo systemctl enable containerd')
-
+            f"curl -fsSLo /tmp/cri-o-archive-keyring.gpg https://download.opensuse.org/repositories/isv:/cri-o:/stable:/v{self.get_k8s_version().major}.{self.get_k8s_version().minor}/deb/Release.key")        
+        
         self.run_command_via_ssh_paramiko(
             node_user,
             node_ip,
-            'sudo systemctl restart containerd')
+            "sudo gpg --dearmor --batch --yes -o /etc/apt/keyrings/cri-o-apt-keyring.gpg /tmp/cri-o-archive-keyring.gpg"
+        )        
 
+        self.run_command_via_ssh(
+            node_user,
+            node_ip,
+            f"sudo apt update")        
+        
+        self.run_command_via_ssh(
+            node_user,
+            node_ip,
+            f"sudo apt {apt_command} -y cri-o")
+        
+        self.run_command_via_ssh(
+            node_user,
+            node_ip,
+            f"sudo systemctl restart crio.service")
 
     @timeit
     def upgrade_worker_nodes(self):
@@ -633,10 +654,10 @@ class KubeBuild(object):
                 node_ip,
                 'sudo apt install -y apt-transport-https ca-certificates curl software-properties-common')
 
-            self.deploy_containerd(
+            self.deploy_crio(
                 node_ip,
                 self.config.get(node_type, 'remote_user'),
-                apt_command)
+                apt_command=apt_command)
 
             logging.info(f"done deploying container runtime to {node_ip}.")
         logging.info(f"finished container runtime deploy.")
@@ -660,12 +681,6 @@ class KubeBuild(object):
                 f"sudo apt install -y kubelet={full_code_version} kubadm={full_code_version} kubectl={full_code_version} nfs-common && "
                 f"sudo apt-mark hold kubelet kubectl kubeadm")
 
-            self.scp_put_via_paramiko(
-                f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/etc/default/kubelet",
-                self.config.get(node_type, 'remote_user'),
-                node,
-                "/etc/default/kubelet")
-
             self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
@@ -675,12 +690,7 @@ class KubeBuild(object):
                 self.config.get(node_type, 'remote_user'),
                 node,
                 "sudo systemctl restart kubelet")
-
-            self.run_command_via_ssh_paramiko(
-                self.config.get(node_type, 'remote_user'),
-                node,
-                "sudo modprobe br_netfilter")
-
+            
             self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
@@ -714,7 +724,7 @@ class KubeBuild(object):
                 f"sudo apt install -y kubelet={full_code_version} kubectl={full_code_version} && "
                 f"sudo apt-mark hold kubelet kubectl")
 
-            self.deploy_containerd(node_ip, self.config.get(node_type, 'remote_user'), apt_command='upgrade')
+            self.deploy_crio(node_ip, self.config.get(node_type, 'remote_user'), apt_command='upgrade')            
 
             self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
