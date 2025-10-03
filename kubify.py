@@ -650,7 +650,7 @@ class KubeBuild(object):
                 self.config.get(node_type, 'remote_user'),
                 node,
                 f"sudo apt-mark unhold kubeadm kubelet kubectl && "
-                f"sudo apt install -y kubelet={full_code_version} kubadm={full_code_version} kubectl={full_code_version} nfs-common && "
+                f"sudo apt install -y kubelet={full_code_version} kubeadm={full_code_version} kubectl={full_code_version} nfs-common && "
                 f"sudo apt-mark hold kubelet kubectl kubeadm")
 
             self.run_command_via_ssh_paramiko(
