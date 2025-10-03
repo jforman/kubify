@@ -977,6 +977,7 @@ class KubeBuild(object):
             self.deploy_kubernetes_binaries('controller')
             self.deploy_kubernetes_binaries('worker')
             self.initialize_control_plane()
+            self.deploy_flannel()
             self.join_worker_nodes()
             self.store_configs_locally()
             self.reboot_hosts('controller')
