@@ -846,7 +846,7 @@ class KubeBuild(object):
                 return_output=True)
 
         for node in self.get_nodes('worker'):
-            logging.info(f"adding worker node at {node}.")
+            logging.info(f"Adding worker node at {node}.")
 
             self.run_command_via_ssh(
                 self.config.get('worker', 'remote_user'),
