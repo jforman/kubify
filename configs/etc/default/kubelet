@@ -1,2 +1,0 @@
-# kubelet default settings
-KUBELET_EXTRA_ARGS=--cgroup-driver=systemd
