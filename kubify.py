@@ -104,7 +104,7 @@ class KubeBuild(object):
 
         # TODO: this regex seems overly lenient. figure out why kubelet/unknown
         # wouldn't match.
-        search_string = f"kubelet.* ({mmp_version_str}-\S+.\S+) amd64"
+        search_string = f"kubelet.* ({mmp_version_str}-\\S+.\\S+) amd64"
         logging.debug(f"Search string: {search_string}")
         full_code_ver = re.search(search_string, command_output, re.MULTILINE).group(1)
         logging.info(f"Found latest code version: {full_code_ver}")
