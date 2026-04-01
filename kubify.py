@@ -263,25 +263,6 @@ class KubeBuild(object):
             return output
 
     @timeit
-    def run_command_via_ssh(self, remote_user, remote_host, command,
-                            ignore_errors=False, return_output=False, noop_command=False):
-        """ssh to remote host and run specified command."""
-        ssh_args = ('-o UserKnownHostsFile=/dev/null '
-                    '-o StrictHostKeyChecking=no '
-                    '-t')
-
-        output = self.run_command(
-            f"ssh {ssh_args} {remote_user}@{remote_host} {command}",
-            ignore_errors=ignore_errors,
-            return_output=return_output,
-            noop_command=noop_command,
-            )
-
-        if return_output:
-            return output
-
-
-    @timeit
     def write_template(self, input_template, output_path, template_vars):
         """write a jinja2 template, with support for dry run and logging."""
 
