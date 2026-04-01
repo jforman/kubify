@@ -399,17 +399,17 @@ class KubeBuild(object):
             "sudo gpg --dearmor --batch --yes -o /etc/apt/keyrings/cri-o-apt-keyring.gpg /tmp/cri-o-archive-keyring.gpg"
         )        
 
-        self.run_command_via_ssh(
+        self.run_command_via_ssh_paramiko(
             node_user,
             node_ip,
             f"sudo apt update")        
         
-        self.run_command_via_ssh(
+        self.run_command_via_ssh_paramiko(
             node_user,
             node_ip,
             f"sudo apt {apt_command} -y cri-o")
         
-        self.run_command_via_ssh(
+        self.run_command_via_ssh_paramiko(
             node_user,
             node_ip,
             f"sudo systemctl restart crio.service")
@@ -533,7 +533,7 @@ class KubeBuild(object):
         """reboot a set of hosts."""
         for node in self.get_nodes(node_type):
             logging.info(f"rebooting host {node}.")
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
                 'sudo shutdown -r now',
@@ -848,7 +848,7 @@ class KubeBuild(object):
         for node in self.get_nodes('worker'):
             logging.info(f"Adding worker node at {node}.")
 
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get('worker', 'remote_user'),
                 node,
                 f"sudo {join_command}")
@@ -863,7 +863,7 @@ class KubeBuild(object):
                 certificate_key_flag = f"--certificate-key {certificate_key}"
 
             logging.info(f"Adding node {node} of type {node_type}.")
-            self.run_command_via_ssh(
+            self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
                 f"sudo kubeadm join {self.config.get('general', 'api_server_loadbalancer_hostport')} "
@@ -939,7 +939,7 @@ class KubeBuild(object):
         node_type = 'controller'
         for node in self.get_nodes(node_type, node_source="config"):
             logging.info(f"attempting to obtain join command from {node}.")
-            token_create_output = self.run_command_via_ssh(
+            token_create_output = self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
                 "sudo kubeadm token create --print-join-command",
