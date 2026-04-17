@@ -717,7 +717,10 @@ class KubeBuild(object):
                     logging.debug(f"command output:\n{output}")
             except subprocess.CalledProcessError as err:
                 logging.fatal(f"Error in running {command_list}.")
-                logging.fatal(f"Output:\n{err.output.decode()}")
+                logging.fatal(f"Return Code: {err.returncode}.")
+                logging.fatal(f"Output Decode:\n{err.output}")
+                logging.fatal(f"Output Decode:\n{err.output.decode()}")
+                logging.fatal(f"Error output (stderr): {err.stderr}.")
                 output = err.output.decode()
                 if ignore_errors:
                     logging.info('ERROR IGNORED, continuing on.')
