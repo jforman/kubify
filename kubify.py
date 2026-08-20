@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import asyncio
 import base64
 import configparser
+import io
 import inspect
 import ipaddress
 import json
@@ -21,6 +23,7 @@ import yaml
 
 import helpers
 from packaging import version
+from onepassword.client import Client as onePasswordClient
 
 RE_CERTIFICATE_KEY = re.compile(r'--certificate-key (\S+)', re.MULTILINE)
 RE_DISCOVERY_TOKEN = re.compile(r'--discovery-token-ca-cert-hash (\S+)', re.MULTILINE)
@@ -58,6 +61,45 @@ class KubeBuild(object):
         self.certificate_key = ""
 
         logging.debug(f'Checkout Path: {self.checkout_path}')
+
+    async def get_paramiko_client(self, remote_user, remote_host):
+        logging.debug(f"Creating paramiko SSH client.")
+        self.paramiko_client = paramiko.SSHClient()
+        self.private_key = None
+
+        onepassword_sa_key = self.config.get('general', 'onepassword_sa_key', fallback=None).strip('"').strip("'")
+        onepassword_item = self.config.get('general', 'onepassword_sshkey_item', fallback=None).strip('"').strip("'")
+        logging.debug(f"onepassword_sa_key: {onepassword_sa_key}, onepassword_item: {onepassword_item}")
+
+        if onepassword_sa_key and onepassword_item:
+            logging.debug('Found 1password SSH key info. Retrieving private key.')
+            op_client = await onePasswordClient.authenticate(
+                auth=onepassword_sa_key,
+                integration_name="my 1password integration",
+                integration_version="v1.0.0")
+            
+            key_field = (f"{onepassword_item}/private key?ssh-format=openssh")
+            logging.info(f"Retrieving key field: {key_field}.")
+            # TODO: set self.raw_private_key as class variable and reference it if we already made the API call
+            # to 1password.
+            raw_key = await op_client.secrets.resolve(key_field)
+            logging.debug(f"Retrieved private key for item {key_field}.")
+
+            for key_class in (paramiko.RSAKey, paramiko.Ed25519Key):
+                try:
+                    self.private_key = key_class.from_private_key(io.StringIO(raw_key))
+                    logging.debug(f"SSH Key Algorithm: {self.private_key.get_name()}")
+                    break
+                except paramiko.SSHException:
+                    raise
+        else:
+            logging.info(f"No 1password SSH key info found.")
+
+        self.paramiko_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        logging.debug(f"self.paramiko_client: {self.paramiko_client}")
+        self.paramiko_client.connect(
+            remote_host, port=22, username=remote_user, pkey=self.private_key)
+        return self.paramiko_client
 
     def timeit(method):
 
@@ -196,12 +238,10 @@ class KubeBuild(object):
         try:
             # heavily adopted from
             # https://stackoverflow.com/questions/3635131/paramikos-sshclient-with-sftp#66724076
-            logging.debug(f"Creating paramiko SSH client.")
-            client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            client.connect(remote_host, username=remote_user)
-            sftp = client.open_sftp()
+            ssh_client = asyncio.run(self.get_paramiko_client(remote_user, remote_host))
+            sftp = ssh_client.open_sftp()
             sftp.get(remote_path, local_path)
+            sftp.close()
         except Exception as e:
             logging.fatal(f"Error when getting file via SFTP: {e}.")
             logging.debug(f"Closing sftp client.")
@@ -221,18 +261,17 @@ class KubeBuild(object):
                 logging.info(f"DRY RUN: Would have copied {local_path} to {remote_host}:{remote_path}.")
                 return
 
-        logging.debug(f"Creating paramiko SSH client.")
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(remote_host, username=remote_user)
-        sftp = client.open_sftp()
+        ssh_client = asyncio.run(self.get_paramiko_client(remote_user, remote_host))
+        sftp = ssh_client.open_sftp()
 
         try:
+            logging.info(f"Uploading {local_path} to {remote_host}:{remote_path}.")
             file_basename = os.path.basename(local_path)
             sftp.put(local_path, file_basename)
             self.run_command_via_ssh_paramiko(
                 remote_user, remote_host,
                 f"sudo cp {file_basename} {remote_path}")
+            sftp.close()
         except Exception as e:
             logging.fatal(f"Error in SFP put: {e}.")
             logging.debug(f"Closing sftp client.")
@@ -254,18 +293,16 @@ class KubeBuild(object):
                 logging.info(f"DRY RUN AND MUTATE: Don't Execute: { command }")
                 return
 
+        ssh_client = asyncio.run(self.get_paramiko_client(remote_user, remote_host))
+        logging.debug(f"ssh_client: {ssh_client}")
         logging.info(f"Executing command via paramiko on {remote_host}: {command}")
-        logging.debug(f"Creating paramiko SSH client.")
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(remote_host, port=22, username=remote_user)
-        stdin, stdout, stderr = client.exec_command(command)
+        stdin, stdout, stderr = ssh_client.exec_command(command)
 
         output = stdout.read().decode('utf-8')
         error = stderr.read().decode('utf-8')
         logging.debug(f"Paramiko stdout: {output}")
         logging.debug(f"Paramiko stderr: {error}")
-        client.close()
+        ssh_client.close()
         logging.debug(f"Closing paramiko SSH client.")
 
         if return_output:
