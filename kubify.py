@@ -95,6 +95,11 @@ class KubeBuild(object):
     def get_k8s_full_code_version(self, remote_user, node_ip, mmp_version_str):
         """given major.minor.patch k8s version, find the packaged code version."""
         logging.info("Getting full code version.")
+
+        if self.args.dry_run:
+            logging.info("DRY RUN: Fake version returning, 0.0.1")
+            return "0.0.1"
+
         command_output = self.run_command_via_ssh_paramiko(
             remote_user,
             node_ip,
@@ -115,6 +120,10 @@ class KubeBuild(object):
     def get_k8s_version(self, raw_version=None):
         """parse the requested kubernetes version into self.k8s_version."""
         ver_obj = version.Version
+
+        if self.args.dry_run:
+            logging.info(f"Dry run requested. Not trying to determine k8s version.")
+            return version.Version("0.0.1")
 
         if self.k8s_version is not None:
             logging.info(f"Found cached k8s_version: {self.k8s_version}. Returning.")
