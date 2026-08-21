@@ -60,45 +60,53 @@ class KubeBuild(object):
         self.discovery_token_ca_cert_hash = ""
         self.certificate_key = ""
 
+        self.ssh_private_key = None
+        self.onepassword_api_calls = 0
+        self.onepassword_cached_creds_calls = 0
         logging.debug(f'Checkout Path: {self.checkout_path}')
 
     async def get_paramiko_client(self, remote_user, remote_host):
         logging.debug(f"Creating paramiko SSH client.")
         self.paramiko_client = paramiko.SSHClient()
-        self.private_key = None
+        
+        onepassword_serviceaccount_key = self.config.get('general', 'onepassword_serviceaccount_key', fallback=None)
+        onepassword_sshkey_item = self.config.get('general', 'onepassword_sshkey_item', fallback=None)
+        logging.debug(f"onepassword_serviceaccount_key: {onepassword_serviceaccount_key}, onepassword_sshkey_item: {onepassword_sshkey_item}")
 
-        onepassword_sa_key = self.config.get('general', 'onepassword_sa_key', fallback=None).strip('"').strip("'")
-        onepassword_item = self.config.get('general', 'onepassword_sshkey_item', fallback=None).strip('"').strip("'")
-        logging.debug(f"onepassword_sa_key: {onepassword_sa_key}, onepassword_item: {onepassword_item}")
-
-        if onepassword_sa_key and onepassword_item:
+        if onepassword_serviceaccount_key and onepassword_sshkey_item:     
             logging.debug('Found 1password SSH key info. Retrieving private key.')
-            op_client = await onePasswordClient.authenticate(
-                auth=onepassword_sa_key,
-                integration_name="my 1password integration",
-                integration_version="v1.0.0")
-            
-            key_field = (f"{onepassword_item}/private key?ssh-format=openssh")
-            logging.info(f"Retrieving key field: {key_field}.")
-            # TODO: set self.raw_private_key as class variable and reference it if we already made the API call
-            # to 1password.
-            raw_key = await op_client.secrets.resolve(key_field)
-            logging.debug(f"Retrieved private key for item {key_field}.")
 
-            for key_class in (paramiko.RSAKey, paramiko.Ed25519Key):
-                try:
-                    self.private_key = key_class.from_private_key(io.StringIO(raw_key))
-                    logging.debug(f"SSH Key Algorithm: {self.private_key.get_name()}")
-                    break
-                except paramiko.SSHException:
-                    raise
+            if self.ssh_private_key:
+                logging.debug(f"Using existing SSH private key: { self.ssh_private_key}")
+                self.onepassword_cached_creds_calls += 1
+            else:
+                op_client = await onePasswordClient.authenticate(
+                    auth=onepassword_serviceaccount_key,
+                    integration_name="my 1password integration",
+                    integration_version="v1.0.0")
+                key_field = (f"{onepassword_sshkey_item}/private key?ssh-format=openssh")
+                logging.info(f"Retrieving private key for {key_field}.")
+                raw_private_key = await op_client.secrets.resolve(key_field)
+                self.onepassword_api_calls += 1
+                logging.debug(f"Finished retrieving private key for item {key_field}.")
+                logging.debug(f"raw_private_key: {raw_private_key}")
+
+                for key_class in (paramiko.RSAKey, paramiko.Ed25519Key):
+                    logging.debug(f"Trying key class: {key_class.__name__}")
+                    try:
+                        self.ssh_private_key = key_class.from_private_key(io.StringIO(raw_private_key))
+                        logging.debug(f"SSH Key Algorithm: {self.ssh_private_key.get_name()}")
+                        break
+                    except paramiko.SSHException:
+                        continue
+                if self.ssh_private_key is None:
+                    logging.fatal(f"Unable to parse SSH private key from 1password. Exiting.")
         else:
-            logging.info(f"No 1password SSH key info found.")
+            logging.info(f"No 1password SSH key info found. Using local agent.")
 
         self.paramiko_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        logging.debug(f"self.paramiko_client: {self.paramiko_client}")
         self.paramiko_client.connect(
-            remote_host, port=22, username=remote_user, pkey=self.private_key)
+            remote_host, port=22, username=remote_user, pkey=self.ssh_private_key)
         return self.paramiko_client
 
     def timeit(method):
