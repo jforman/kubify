@@ -176,7 +176,7 @@ class KubeBuild(object):
             return version.Version("0.0.1")
 
         if self.k8s_version is not None:
-            logging.info(f"Found cached k8s_version: {self.k8s_version}. Returning.")
+            logging.debug(f"Found cached k8s_version: {self.k8s_version}. Returning.")
             return self.k8s_version
 
         logging.debug(f"k8s version passed on command line: {self.args.k8s_version}")
@@ -302,7 +302,6 @@ class KubeBuild(object):
                 return
 
         ssh_client = asyncio.run(self.get_paramiko_client(remote_user, remote_host))
-        logging.debug(f"ssh_client: {ssh_client}")
         logging.info(f"Executing command via paramiko on {remote_host}: {command}")
         stdin, stdout, stderr = ssh_client.exec_command(command)
 
@@ -1096,6 +1095,8 @@ def main():
         logging.error(f"Exception Caught: {traceback.print_exc()}")
         logging.error(f"args: {args}")
         logging.error(f"kubify_dirs: {k8s.kubify_dirs}")
+        logging.info(f"1Password API Calls Count: {k8s.onepassword_api_calls}")
+        logging.info(f"1Password Cached Credentials Calls Count: {k8s.onepassword_cached_creds_calls}")
 
 
 if __name__ == '__main__':
