@@ -1073,6 +1073,7 @@ def main():
         logging.error(f"Exception Caught: {traceback.print_exc()}")
         logging.error(f"args: {args}")
         logging.error(f"kubify_dirs: {k8s.kubify_dirs}")
+    finally:
         logging.info(f"1Password API Calls Count: {k8s.onepassword_api_calls}")
         logging.info(f"1Password Cached Credentials Calls Count: {k8s.onepassword_cached_creds_calls}")
 
