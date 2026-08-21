@@ -213,28 +213,6 @@ class KubeBuild(object):
             self.kubify_dirs['CHECKOUT_DIR'], 'templates')
 
     @timeit
-    def scp_file(self, local_path, remote_user, remote_host, remote_path,
-                 ignore_errors=False):
-        """copy the local file to the remote destination."""
-        ssh_args = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
-        if self.args.dry_run:
-            logging.info(f"DRY RUN: Would have copied local file {local_path}, "
-                         f"to {remote_host}:{remote_path}.")
-            return
-
-        if not os.path.exists(local_path):
-            logging.fatal(f"Went to copy local file {local_path}, but file not found.")
-            raise
-        else:
-            logging.debug(f"Local file {local_path} found.")
-
-        self.run_command(
-            f"scp {ssh_args} {local_path} "
-            f"{remote_user}@{remote_host}:{remote_path}",
-            ignore_errors=ignore_errors,
-        )
-
-    @timeit
     def scp_get_via_paramiko(self, remote_user, remote_host, remote_path, local_path):
         """copy local file to remote destination."""
         logging.info(f"Attempting to retrieve {remote_user}@{remote_host}:{remote_path} to {local_path}.")
