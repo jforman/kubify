@@ -1,7 +1,7 @@
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
 kubernetesVersion: v{{ kubernetes_version }}
-controlPlaneEndpoint: {{ api_server_loadbalancer_hostport }}
+controlPlaneEndpoint: {{ control_plane_endpoint }}
 networking:
   dnsDomain: "{{ dns_domain }}"
   serviceSubnet: "{{ service_subnet }}"
@@ -11,6 +11,6 @@ apiServer:
   # Add the loadbalancer FQDN as an additional SAN on the api-server.
   # This allows adding nodes via the loadbalancer FQDN to any controller node.
   certSANs:
-  - "{{ api_server_loadbalancer_hostport.split(':')[0] }}"
+  - "{{ control_plane_endpoint.split(':')[0] }}"
 
 # Bottom of file

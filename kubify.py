@@ -790,7 +790,7 @@ class KubeBuild(object):
                     f"{self.kubify_dirs['TEMPLATE_DIR']}/kubeadm-config.yaml",
                     f"{self.kubify_dirs['CHECKOUT_CONFIG_DIR']}/kubeadm-config.yaml",
                     {
-                        'api_server_loadbalancer_hostport': self.config.get('general', 'api_server_loadbalancer_hostport'),
+                        'control_plane_endpoint': self.config.get('general', 'control_plane_endpoint'),
                         'cluster_name': self.config.get('general', 'cluster_name'),
                         'dns_domain': self.config.get('general', 'dns_domain'),
                         'kubernetes_version': f"{k8s_version.major}.{k8s_version.minor}.{k8s_version.micro}",
@@ -831,7 +831,7 @@ class KubeBuild(object):
                 self.run_command_via_ssh_paramiko(
                     self.config.get(node_type, 'remote_user'),
                     node,
-                    f"sudo kubeadm join {self.config.get('general', 'api_server_loadbalancer_hostport')} "
+                    f"sudo kubeadm join {self.config.get('general', 'control_plane_endpoint')} "
                     f"--token {self.join_token} "
                     f"--discovery-token-ca-cert-hash {self.discovery_token_ca_cert_hash} "
                     f"--control-plane "
@@ -845,7 +845,7 @@ class KubeBuild(object):
         if self.discovery_token_ca_cert_hash:
             logging.info(f"Reusing existing join credentials to add worker nodes.")
             join_command = (
-                f"sudo kubeadm join {self.config.get('general', 'api_server_loadbalancer_hostport')} "
+                f"sudo kubeadm join {self.config.get('general', 'control_plane_endpoint')} "
                 f"--token {self.join_token} "
                 f"--discovery-token-ca-cert-hash {self.discovery_token_ca_cert_hash} ")
         else:       
@@ -881,7 +881,7 @@ class KubeBuild(object):
             self.run_command_via_ssh_paramiko(
                 self.config.get(node_type, 'remote_user'),
                 node,
-                f"sudo kubeadm join {self.config.get('general', 'api_server_loadbalancer_hostport')} "
+                f"sudo kubeadm join {self.config.get('general', 'control_plane_endpoint')} "
                 f"--token {token} {cp_flag} {certificate_key_flag} "
                 f"--discovery-token-ca-cert-hash {discovery_token}")
 
