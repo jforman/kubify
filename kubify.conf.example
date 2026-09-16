@@ -11,7 +11,7 @@ pod_subnet=10.88.0.0/16
 service_subnet=10.140.0.0/16
 cluster_dns_ip_address=10.140.0.10
 # (optional) onepassword_serviceaccount_key=
-# (optional) onepassword_item=
+# (optional) onepassword_sshkey_item=op://vault/ItemId
 
 [controller]
 remote_user=ubuntu
